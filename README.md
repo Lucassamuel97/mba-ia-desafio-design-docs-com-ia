@@ -89,7 +89,7 @@ Ordem de produção seguindo a sugestão do desafio (decisões primeiro, PRD por
 | 2 | RFC | Escrito a partir dos ADRs + base factual. [`docs/RFC.md`](./docs/RFC.md). |
 | 3 | FDD + diagramas | Escrito a partir dos ADRs + deep-dives de código (contratos, matriz `WEBHOOK_*`, integração com 8 arquivos reais). [`docs/FDD.md`](./docs/FDD.md). Diagramas gerados pelo `diagrams-generator`: 7 Mermaid + 4 níveis C4 em [`docs/diagrams/`](./docs/diagrams/). |
 | 4 | PRD | Consolidado a partir de RFC/FDD/ADRs, seguindo um esqueleto de PRD fornecido (prompt de entrevista). 10 requisitos funcionais, 4 objetivos com meta. [`docs/PRD.md`](./docs/PRD.md). |
-| 5 | Tracker | _(pendente)_ |
+| 5 | Tracker | Varredura dos documentos prontos: 67 itens rastreados (84% TRANSCRICAO com timestamp, 10 linhas CODIGO). [`docs/TRACKER.md`](./docs/TRACKER.md). |
 | 6 | README de processo | _(este documento)_ |
 
 **Princípio anti-alucinação:** nenhum item entra num documento sem origem rastreável à
