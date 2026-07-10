@@ -1,0 +1,4 @@
+# Saídas geradas pelos plugins (diagramas, relatórios, ADRs, etc.)
+# Versionamos apenas os FDDs de entrada em docs/features/
+/docs/*
+!/docs/features/
