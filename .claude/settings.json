@@ -1,0 +1,8 @@
+{
+  "enabledPlugins": {
+    "adrs-management@lucassamuel-plugins": true,
+    "diagrams-generator@lucassamuel-plugins": true,
+    "project-analizer@lucassamuel-plugins": true,
+    "development-guidelines@lucassamuel-plugins": true
+  }
+}
