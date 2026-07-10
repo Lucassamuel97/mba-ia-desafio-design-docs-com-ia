@@ -6,6 +6,11 @@
 | **Feature** | Webhooks outbound de notificação de mudança de status de pedido |
 | **Documentos relacionados** | [PRD](./PRD.md), [RFC](./RFC.md), [ADRs](./adrs/) |
 
+### Diagramas
+
+- **Mermaid** (renderiza no GitHub): [`diagrams/webhooks-diagrams.md`](./diagrams/webhooks-diagrams.md) — 7 diagramas (visão geral, criação na outbox, `publishWebhookEvent`, entrega pelo worker, retry/DLQ, replay, modelo de dados).
+- **C4** (PlantUML): [`diagrams/`](./diagrams/) — `webhooks-c1..c4.puml` (contexto, container, componente, código) + análise em [`webhooks-c4.md`](./diagrams/webhooks-c4.md).
+
 ---
 
 ## 1. Contexto e motivação técnica

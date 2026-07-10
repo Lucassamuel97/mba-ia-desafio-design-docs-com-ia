@@ -1,0 +1,149 @@
+@startuml webhooks-c4
+!pragma charset UTF-8
+skinparam packageStyle rectangle
+
+title C4 • Code Level - Webhooks de Notificação de Pedidos
+
+package "Orders (existente)" {
+  class OrderService <<function>> {
+    + changeStatus(orderId, to): Order
+  }
+  class OrderStatusMachine <<function>> {
+    + canTransition(from, to): boolean
+    + allowedTransitions(status): Status[]
+    + isTerminal(status): boolean
+  }
+}
+
+package "Integração Webhooks" {
+  class publishWebhookEvent <<function>> {
+    + publishWebhookEvent(tx, order, from, to): void
+  }
+}
+
+package "Public API" {
+  interface WebhookController {
+    + create(req): 201
+    + update(id, req): 200
+    + list(customerId): 200
+    + deliveries(id): 200
+    + rotateSecret(id): 200
+  }
+  interface DeadLetterReplayController {
+    + replay(id): 202
+  }
+  class WebhookConfig <<struct>> {
+    id: UUID
+    url: string (https)
+    secret: string
+    secretPrevious: string
+    secretPreviousExpiresAt: DateTime
+    customerId: UUID
+    events: Status[]
+    active: boolean
+  }
+}
+
+package "Outbox / DLQ (dados)" {
+  class WebhookOutbox <<struct>> {
+    eventId: UUID
+    eventType: string
+    payload: JSON
+    status: PENDING|PROCESSING|DELIVERED|FAILED
+    attempts: number
+    nextAttemptAt: DateTime
+    createdAt: DateTime
+  }
+  class WebhookDeadLetter <<struct>> {
+    payload: JSON
+    failureReason: string
+    webhookConfigId: UUID
+    createdAt: DateTime
+  }
+  class WebhookDelivery <<struct>> {
+    webhookConfigId: UUID
+    eventId: UUID
+    success: boolean
+    statusCode: number
+    responseBody: string
+    durationMs: number
+    createdAt: DateTime
+  }
+}
+
+package "Worker" {
+  class WebhookWorker <<function>> {
+    + pollLoop(): void
+    + deliver(event: WebhookOutbox): void
+    + sign(payload): string
+  }
+}
+
+package "Erros" {
+  class AppError
+  class WebhookNotFoundError extends AppError
+  class WebhookInvalidUrlError extends AppError
+  class WebhookInvalidEventError extends AppError
+  class WebhookAlreadyExistsError extends AppError
+  class WebhookSecretRequiredError extends AppError
+  class WebhookPayloadTooLargeError extends AppError
+  class WebhookDeadLetterNotFoundError extends AppError
+  class WebhookForbiddenError extends AppError
+}
+
+OrderService --> publishWebhookEvent : chama dentro da tx
+OrderService ..> OrderStatusMachine : valida transição via canTransition
+publishWebhookEvent --> WebhookConfig : consulta ativos por customerId/events
+publishWebhookEvent --> WebhookOutbox : cria (insert)
+WebhookController --> WebhookConfig : CRUD
+WebhookController --> WebhookDelivery : consulta histórico
+DeadLetterReplayController --> WebhookDeadLetter : lê
+DeadLetterReplayController --> WebhookOutbox : recria como PENDING
+WebhookWorker --> WebhookOutbox : SELECT PENDING / UPDATE
+WebhookWorker --> WebhookDelivery : cria (registro)
+WebhookWorker --> WebhookDeadLetter : cria após 5 tentativas
+WebhookController ..> WebhookNotFoundError
+WebhookController ..> WebhookInvalidUrlError
+WebhookController ..> WebhookInvalidEventError
+WebhookController ..> WebhookAlreadyExistsError
+WebhookController ..> WebhookSecretRequiredError
+WebhookController ..> WebhookPayloadTooLargeError
+DeadLetterReplayController ..> WebhookDeadLetterNotFoundError
+DeadLetterReplayController ..> WebhookForbiddenError
+
+note right of publishWebhookEvent
+  Invariantes
+  • Executa dentro da tx de changeStatus
+  • from/to vêm de parâmetros, nunca de order.status
+  • Sem config ativa correspondente -> não insere
+  • Falha no insert reverte a transação inteira
+end note
+
+note right of WebhookConfig
+  Validações
+  • url deve ser https (Zod)
+  • events deve pertencer à state machine
+  • secret só é retornada na criação
+end note
+
+note right of WebhookWorker
+  Retry / Backoff
+  • Timeout 10s por tentativa
+  • Backoff 1m/5m/30m/2h/12h
+  • 5 tentativas -> move para DLQ
+  • X-Signature = HMAC-SHA256(secret, body)
+end note
+
+note right of WebhookOutbox
+  Idempotência
+  • event_id estável e único por evento
+  • payload <= 64KB (senão WEBHOOK_PAYLOAD_TOO_LARGE)
+end note
+
+note bottom of OrderStatusMachine
+  Inferência documentada
+  • 6 status, 8 transições citadas na FDD
+  • assinaturas exatas não detalhadas no documento
+end note
+
+@enduml

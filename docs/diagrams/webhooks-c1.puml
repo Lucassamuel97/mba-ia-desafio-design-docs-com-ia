@@ -1,0 +1,36 @@
+@startuml webhooks-c1
+!pragma charset UTF-8
+!include <C4/C4_Context>
+
+title C1 • System Context - Webhooks de Notificação de Pedidos
+
+LAYOUT_LEFT_RIGHT()
+
+Person(admin, "Administrador", "Executa replay de eventos presos na Dead Letter Queue")
+
+System(oms, "OMS", "Sistema de Gestão de Pedidos, agora com notificação via webhooks quando o status de um pedido muda")
+
+System_Ext(clienteB2B, "Sistema do Cliente B2B", "Configura assinaturas de webhook e recebe notificações de mudança de status")
+
+Rel(clienteB2B, oms, "Configura webhooks e consulta histórico de entregas", "HTTPS/REST")
+Rel(oms, clienteB2B, "Notifica mudança de status do pedido", "HTTPS POST assinado (HMAC-SHA256)")
+Rel(admin, oms, "Executa replay de eventos falhos (DLQ)", "HTTPS/REST (role ADMIN)")
+
+note right of oms
+  Propósito
+  • Notifica clientes B2B em até ~2s (pior caso)
+  • Padrão Outbox garante atomicidade com changeStatus
+  • Entrega at-least-once com dedup via X-Event-Id
+  • Sem infraestrutura nova (sem Redis/broker)
+end note
+
+note right of clienteB2B
+  Responsabilidades do cliente
+  • Expor endpoint HTTPS para receber webhooks
+  • Validar X-Signature (HMAC-SHA256)
+  • Deduplicar por X-Event-Id
+end note
+
+SHOW_LEGEND()
+
+@enduml

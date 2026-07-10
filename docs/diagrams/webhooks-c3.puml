@@ -1,0 +1,72 @@
+@startuml webhooks-c3
+!pragma charset UTF-8
+!include <C4/C4_Component>
+
+title C3 • Component - Webhooks de Notificação de Pedidos
+
+LAYOUT_TOP_DOWN()
+
+Container_Boundary(api, "API OMS") {
+  Component(orderService, "OrderService.changeStatus", "TypeScript, transação Prisma", "Altera status do pedido, histórico e estoque")
+  Component(publishEvent, "publishWebhookEvent", "TypeScript function", "Insere evento na outbox para configs ativas, dentro da mesma transação")
+  Component(webhookCrud, "API Pública de Webhooks", "Express router", "CRUD de webhook_config, listagem e histórico de entregas")
+  Component(dlqReplay, "Replay de DLQ", "Express router (role ADMIN)", "Recria evento da dead letter como PENDING na outbox")
+  Component(errorHandling, "Erros WEBHOOK_*", "AppError subclasses", "Erros de domínio reconhecidos pelo error middleware existente")
+}
+
+Container_Boundary(worker, "Worker de Webhooks") {
+  Component(poller, "Event Poller", "TypeScript, loop a cada 2s", "Busca eventos PENDING com next_attempt_at vencido")
+  Component(hmacSigner, "HMAC Signer", "Node crypto nativo", "Assina o payload com HMAC-SHA256")
+  Component(deliveryClient, "Delivery Client", "HTTP client", "Executa o POST assinado com timeout de 10s")
+  Component(retryScheduler, "Retry Scheduler", "TypeScript", "Calcula backoff e agenda next_attempt_at")
+  Component(dlqMover, "DLQ Mover", "TypeScript", "Move evento esgotado para webhook_dead_letter")
+}
+
+ContainerDb_Ext(mysql, "Banco de Dados", "MySQL + Prisma", "webhook_config, webhook_outbox, webhook_dead_letter, webhook_delivery")
+Container_Ext(clienteB2B, "Sistema do Cliente B2B", "HTTPS", "Recebe o webhook assinado")
+
+Rel(orderService, publishEvent, "Chama entre criação do histórico e refreshed", "dentro da tx")
+Rel(publishEvent, mysql, "Insere em webhook_outbox (só se houver config ativa)", "Prisma tx")
+Rel(webhookCrud, mysql, "CRUD webhook_config, leitura de webhook_delivery")
+Rel(dlqReplay, mysql, "Lê dead_letter e recria evento em outbox")
+Rel(errorHandling, webhookCrud, "Usado por")
+Rel(errorHandling, dlqReplay, "Usado por")
+
+Rel(poller, mysql, "SELECT PENDING / UPDATE PROCESSING")
+Rel(poller, hmacSigner, "Solicita assinatura do payload")
+Rel(poller, deliveryClient, "Encaminha para entrega")
+Rel(deliveryClient, clienteB2B, "HTTP POST assinado", "timeout 10s")
+Rel(deliveryClient, mysql, "Registra resultado em webhook_delivery")
+Rel(deliveryClient, retryScheduler, "Em caso de falha (status >= 400, timeout, erro de rede)")
+Rel(retryScheduler, mysql, "Atualiza attempts e next_attempt_at")
+Rel(retryScheduler, dlqMover, "Após 5 tentativas sem sucesso")
+Rel(dlqMover, mysql, "Insere em webhook_dead_letter, marca outbox FAILED")
+
+note right of publishEvent
+  Atomicidade
+  • Falha no insert reverte changeStatus inteiro
+  • from/to vêm dos parâmetros, não de order.status
+  Filtro
+  • Só considera webhook_config ativos do customer
+end note
+
+note right of poller
+  Ordenação
+  • Batch pequeno, ordenado por created_at
+  • Single-worker garante ordem por order_id
+end note
+
+note right of retryScheduler
+  Backoff
+  • 1m / 5m / 30m / 2h / 12h
+  • 5 tentativas antes da DLQ
+end note
+
+note right of dlqReplay
+  Auditoria
+  • Loga o usuário ADMIN que executou o replay
+end note
+
+SHOW_LEGEND()
+
+@enduml

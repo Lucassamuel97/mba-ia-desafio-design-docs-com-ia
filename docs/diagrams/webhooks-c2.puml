@@ -1,0 +1,54 @@
+@startuml webhooks-c2
+!pragma charset UTF-8
+!include <C4/C4_Container>
+
+title C2 • Container - Webhooks de Notificação de Pedidos
+
+LAYOUT_TOP_DOWN()
+
+Person(admin, "Administrador", "Executa replay de eventos na DLQ")
+
+System_Boundary(oms, "OMS") {
+  Container(api, "API OMS", "Node.js + TypeScript, Express", "Expõe endpoints REST de pedidos e de configuração/replay de webhooks")
+  Container(worker, "Worker de Webhooks", "Node.js + TypeScript", "Processo dedicado que entrega eventos via HTTP POST assinado")
+  ContainerDb(mysql, "Banco de Dados", "MySQL + Prisma ORM", "Armazena pedidos, webhook_config, outbox, DLQ e histórico de entregas")
+}
+
+Container_Ext(clienteB2B, "Sistema do Cliente B2B", "HTTPS", "Configura webhooks e recebe as notificações assinadas")
+
+Rel(clienteB2B, api, "Configura webhooks, consulta histórico", "HTTPS/REST + JSON")
+Rel(admin, api, "Replay de evento da DLQ", "HTTPS/REST (role ADMIN)")
+Rel(api, mysql, "Lê/grava pedidos, webhook_config e insere na outbox (mesma transação)", "Prisma Client")
+Rel(worker, mysql, "Faz poll de eventos PENDING e atualiza status", "Prisma Client próprio")
+Rel(worker, clienteB2B, "Entrega webhook assinado", "HTTPS POST, HMAC-SHA256, timeout 10s")
+
+note right of api
+  Tecnologias
+  • Node.js + TypeScript + Express
+  • Prisma ORM sobre MySQL
+  Responsabilidades
+  • CRUD de webhook_config
+  • publishWebhookEvent dentro da tx de changeStatus
+  • Replay de DLQ (role ADMIN)
+end note
+
+note right of worker
+  Configuração
+  • Loop de polling a cada 2s
+  • Timeout de 10s por tentativa
+  • PrismaClient próprio (mesma DATABASE_URL)
+  Resiliência
+  • Retry exponencial 1m/5m/30m/2h/12h
+  • DLQ após 5 tentativas sem sucesso
+end note
+
+note right of mysql
+  Tabelas novas
+  • webhook_config, webhook_outbox
+  • webhook_dead_letter, webhook_delivery
+  Sem infraestrutura nova (sem Redis/broker)
+end note
+
+SHOW_LEGEND()
+
+@enduml
