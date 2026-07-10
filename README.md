@@ -88,7 +88,7 @@ Ordem de produção seguindo a sugestão do desafio (decisões primeiro, PRD por
 | 1 | 6 ADRs | *Seeds* ancorados na transcrição+código → `/adr-generate` (6 agentes em paralelo) → renumeração e cross-links. Em [`docs/adrs/`](./docs/adrs/). |
 | 2 | RFC | Escrito a partir dos ADRs + base factual. [`docs/RFC.md`](./docs/RFC.md). |
 | 3 | FDD + diagramas | Escrito a partir dos ADRs + deep-dives de código (contratos, matriz `WEBHOOK_*`, integração com 8 arquivos reais). [`docs/FDD.md`](./docs/FDD.md). Diagramas gerados pelo `diagrams-generator`: 7 Mermaid + 4 níveis C4 em [`docs/diagrams/`](./docs/diagrams/). |
-| 4 | PRD | _(pendente)_ |
+| 4 | PRD | Consolidado a partir de RFC/FDD/ADRs, seguindo um esqueleto de PRD fornecido (prompt de entrevista). 10 requisitos funcionais, 4 objetivos com meta. [`docs/PRD.md`](./docs/PRD.md). |
 | 5 | Tracker | _(pendente)_ |
 | 6 | README de processo | _(este documento)_ |
 
