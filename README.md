@@ -67,4 +67,53 @@ Atalhos disponíveis no `Makefile`:
 
 ## Processo de produção
 
-_A ser preenchido ao longo do desafio (workflow, prompts customizados, iterações e como navegar a entrega)._
+> Seção viva — atualizada a cada fase concluída.
+
+### Ferramentas de IA utilizadas
+
+- **Claude Code (Opus 4.8)** — orquestração de todo o processo: leitura de código, análise da
+  transcrição, geração e revisão dos documentos.
+- **Plugins do Claude Code** (marketplace `lucassamuel-plugins`):
+  - `project-analizer` — mapeamento arquitetural e deep-dive dos componentes tocados pela feature.
+  - `adrs-management` — geração formal dos ADRs a partir de *potential ADRs* ancorados na fonte.
+  - `diagrams-generator` — (Fase FDD) diagramas C4 e Mermaid.
+
+### Workflow adotado
+
+Ordem de produção seguindo a sugestão do desafio (decisões primeiro, PRD por último):
+
+| Fase | Entregável | Como foi feito |
+| --- | --- | --- |
+| 0 | Base factual + análise de código | Extração manual das 6 decisões/requisitos da transcrição (com timestamps) + `/generate-architectural-report` e deep-dives dos componentes-chave (`changeStatus`, `AppError`, `requireRole`, máquina de estados). Relatórios em [`docs/agents/`](./docs/agents/). |
+| 1 | 6 ADRs | *Seeds* ancorados na transcrição+código → `/adr-generate` (6 agentes em paralelo) → renumeração e cross-links. Em [`docs/adrs/`](./docs/adrs/). |
+| 2 | RFC | Escrito a partir dos ADRs + base factual. [`docs/RFC.md`](./docs/RFC.md). |
+| 3 | FDD + diagramas | _(em andamento)_ |
+| 4 | PRD | _(pendente)_ |
+| 5 | Tracker | _(pendente)_ |
+| 6 | README de processo | _(este documento)_ |
+
+**Princípio anti-alucinação:** nenhum item entra num documento sem origem rastreável à
+transcrição (timestamp) ou ao código (caminho de arquivo). Uma base factual central
+(`docs/adrs/context/base-factual.md`) serve de fonte da verdade compartilhada entre as fases.
+
+### Iterações e ajustes
+
+- **Fase 0 — escopo dos deep-dives.** O analisador arquitetural listou 41 componentes; rodar o
+  deep-dive em todos seria custoso e irrelevante. Reduzi para os 4 que a feature realmente toca.
+- **Fase 0 — contradição na transcrição.** `customer_id` foi dito "vem do JWT" [09:31] e logo
+  corrigido para "vem do body/path" [09:32-09:33]. Prevaleceu a correção; registrado como nota.
+- **Fase 1 — mismatch do plugin.** O fluxo padrão do `adrs-management` minera decisões do
+  *código existente*, mas nossas decisões vêm da *reunião* sobre uma feature ainda não codada.
+  Ajuste: escrevi os *potential ADRs* manualmente (ancorados na fonte) e usei o plugin só para
+  formalizar em MADR.
+- **Fase 1 — limpeza de `[NEEDS INPUT]`.** Os agentes deixaram marcadores de lacuna. Removi os
+  redundantes (data de calendário) e converti os legítimos em "Ponto em aberto", sem inventar
+  respostas — reaproveitados como "Questões em aberto" do RFC.
+
+### Prompts customizados
+
+_(a consolidar na Fase 6 — ver os prompts de geração de ADR e de análise usados nas Fases 0-1)_
+
+### Como navegar a entrega
+
+_(ordem de leitura sugerida — a consolidar na Fase 6)_
