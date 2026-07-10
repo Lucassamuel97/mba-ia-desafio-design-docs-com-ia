@@ -1,0 +1,427 @@
+{
+  "meta": {
+    "product": "OMS Order Management System",
+    "feature": "Sistema de Webhooks de Notificação de Pedidos",
+    "prd_owner": "Marcos (Product Manager)",
+    "version": "1.0"
+  },
+  "context": {
+    "summary": "Feature que notifica clientes B2B em tempo quase real, abaixo de 10 segundos, sempre que o status de um pedido muda no OMS. Hoje os clientes descobrem mudanças fazendo polling manual em GET /orders, o que é lento e caro. A solução envia webhooks outbound assinados com HMAC-SHA256 usando o padrão Outbox no MySQL existente, com worker separado, retry com backoff e Dead Letter Queue, reaproveitando os padrões do OMS.",
+    "target_audience": [
+      "Clientes B2B integradores (Atlas Comercial, MaxDistribuição, Nova Cargo)",
+      "Time de engenharia de Pedidos e Plataforma que opera o OMS",
+      "Administradores de operação responsáveis por reprocessar falhas"
+    ],
+    "key_use_cases": [
+      "Cliente cadastra um webhook e passa a receber automaticamente as mudanças de status dos pedidos dele",
+      "Cliente filtra quais status quer ouvir, por exemplo apenas SHIPPED e DELIVERED",
+      "Cliente consulta o histórico de entregas para auditar sucesso ou falha",
+      "Administrador reprocessa manualmente um evento que caiu na Dead Letter Queue"
+    ],
+    "deployment_context": {
+      "type": "existing_system",
+      "description": "OMS em produção, aplicação Node.js e TypeScript com Express e Prisma sobre MySQL. A feature entra como um novo módulo em src/modules/webhooks mais um novo processo worker em src/worker.ts, sem introduzir nova infraestrutura."
+    },
+    "problems": [
+      {
+        "description": "Clientes precisam fazer polling manual repetido em GET /orders para saber se algo mudou, deixando a integração lenta e cara",
+        "impact": "Alto, a Atlas sinalizou risco de migrar para um concorrente se a entrega não sair até o fim do trimestre",
+        "priority": "high"
+      },
+      {
+        "description": "Não existe nenhum mecanismo de notificação externa, evento, fila ou webhook no OMS hoje",
+        "impact": "Alto, sem isso não há como atender o pedido formal dos clientes",
+        "priority": "high"
+      },
+      {
+        "description": "Disparar a notificação de forma síncrona dentro da mudança de status acoplaria a latência do cliente externo à transação crítica de pedidos",
+        "impact": "Médio, travaria a mudança de status para outros pedidos",
+        "priority": "medium"
+      }
+    ]
+  },
+  "goals": [
+    {
+      "goal": "Notificar o cliente em tempo quase real",
+      "metric": "Tempo entre a mudança de status e a entrega do webhook",
+      "target": "Abaixo de 10 segundos, com pior caso aproximado de 2 segundos"
+    },
+    {
+      "goal": "Eliminar o polling manual dos clientes",
+      "metric": "Necessidade de o cliente consultar GET /orders para detectar mudança",
+      "target": "Zero, a mudança é empurrada por webhook"
+    },
+    {
+      "goal": "Tolerar indisponibilidade temporária do cliente sem perder eventos",
+      "metric": "Janela de tempo coberta pelas tentativas de reentrega",
+      "target": "Até aproximadamente 12 a 24 horas, com 5 tentativas"
+    },
+    {
+      "goal": "Entregar a feature no prazo comercial",
+      "metric": "Sprints de desenvolvimento incluindo revisão de segurança",
+      "target": "3 sprints"
+    }
+  ],
+  "scope": {
+    "in_scope": [
+      "CRUD de configuração de webhook, cadastrar, editar, remover e listar",
+      "Filtro de eventos por status aplicado na inserção na outbox",
+      "Tabela outbox no MySQL preenchida na mesma transação da mudança de status",
+      "Worker separado em polling de 2 segundos para entrega",
+      "Assinatura HMAC-SHA256 com secret única por endpoint e rotação com grace period de 24 horas",
+      "Retry com backoff exponencial e Dead Letter Queue em tabela separada",
+      "Endpoint admin para replay manual da Dead Letter Queue",
+      "Garantia at-least-once com header X-Event-Id para deduplicação no cliente",
+      "Histórico de entregas consultável pelo cliente"
+    ],
+    "out_of_scope": [
+      "E-mail de aviso ao cliente quando o webhook dele falha, adiado para fase futura",
+      "Dashboard ou painel visual, projeto separado do time de frontend",
+      "Rate limiting de saída, fica como observar e decidir depois",
+      "Garantia de ordenação global entre pedidos diferentes, apenas por order_id",
+      "Arquivamento das linhas entregues da outbox, aproximadamente 30 dias",
+      "Endurecimento de papéis do CRUD de configuração, adiado"
+    ]
+  },
+  "functional_requirements": [
+    {
+      "id": "FR-001",
+      "name": "Cadastrar webhook",
+      "description": "O cliente cadastra um endpoint de webhook informando url, lista de status desejados e customer_id",
+      "main_flow": [
+        "Cliente autenticado envia POST /webhooks com url https, lista de eventos e customer_id no corpo",
+        "Sistema valida os dados, gera uma secret única e persiste a configuração",
+        "Sistema devolve a configuração criada incluindo a secret, retornada apenas na criação"
+      ],
+      "alternative_flows": [
+        "customer_id vem do corpo ou da rota, nunca do JWT do operador",
+        "Se já existir configuração idêntica para o customer, o cadastro é rejeitado"
+      ],
+      "known_errors": [
+        "WEBHOOK_INVALID_URL quando a url não é https",
+        "WEBHOOK_INVALID_EVENT quando um status informado não existe na máquina de estados",
+        "WEBHOOK_ALREADY_EXISTS quando já há webhook igual para o customer"
+      ],
+      "priority": "high"
+    },
+    {
+      "id": "FR-002",
+      "name": "Editar webhook",
+      "description": "O cliente altera url, lista de eventos ou estado ativo de um webhook existente",
+      "main_flow": [
+        "Cliente autenticado envia PATCH /webhooks/:id com os campos a alterar",
+        "Sistema valida e persiste a alteração"
+      ],
+      "alternative_flows": [
+        "Alteração parcial, apenas os campos enviados são modificados"
+      ],
+      "known_errors": [
+        "WEBHOOK_NOT_FOUND quando o webhook não existe"
+      ],
+      "priority": "medium"
+    },
+    {
+      "id": "FR-003",
+      "name": "Remover webhook",
+      "description": "O cliente remove um webhook que não quer mais",
+      "main_flow": [
+        "Cliente autenticado envia DELETE /webhooks/:id",
+        "Sistema remove a configuração"
+      ],
+      "alternative_flows": [
+        "Webhook removido para de receber novos eventos, entregas em andamento seguem seu ciclo"
+      ],
+      "known_errors": [
+        "WEBHOOK_NOT_FOUND quando o webhook não existe"
+      ],
+      "priority": "medium"
+    },
+    {
+      "id": "FR-004",
+      "name": "Listar webhooks do customer",
+      "description": "O cliente consulta os webhooks cadastrados de um customer",
+      "main_flow": [
+        "Cliente autenticado envia GET /webhooks?customerId=...",
+        "Sistema devolve a lista de webhooks do customer, sem a secret"
+      ],
+      "alternative_flows": [
+        "A secret nunca é retornada em operações de leitura"
+      ],
+      "known_errors": [
+        "Requisição sem autenticação é rejeitada"
+      ],
+      "priority": "medium"
+    },
+    {
+      "id": "FR-005",
+      "name": "Emitir evento na outbox dentro da transação",
+      "description": "Quando o status de um pedido muda, o sistema registra o evento na outbox de forma atômica",
+      "main_flow": [
+        "changeStatus valida a transição e persiste a mudança de status",
+        "Na mesma transação, publishWebhookEvent(tx, order, from, to) insere o evento na outbox com payload renderizado e event_id novo",
+        "Se a transação commita, o evento existe. Se sofre rollback, o evento some junto"
+      ],
+      "alternative_flows": [
+        "Se nenhum webhook ativo do customer ouve aquele status, nada é inserido",
+        "As pontas da transição vêm dos parâmetros from e to, nunca de reler o status do pedido em memória"
+      ],
+      "known_errors": [
+        "Falha ao inserir na outbox provoca rollback da mudança de status"
+      ],
+      "priority": "high"
+    },
+    {
+      "id": "FR-006",
+      "name": "Entregar o webhook pelo worker com assinatura",
+      "description": "Um worker separado entrega os eventos pendentes com assinatura HMAC",
+      "main_flow": [
+        "Worker em processo separado faz polling a cada 2 segundos pelos eventos pendentes mais antigos",
+        "Monta os headers, assina o corpo com HMAC-SHA256 e envia via HTTP POST com timeout de 10 segundos",
+        "Resposta 2xx marca o evento como entregue e registra na tabela de entregas"
+      ],
+      "alternative_flows": [
+        "Resposta diferente de 2xx ou timeout aciona o fluxo de retry",
+        "Ordenação garantida por order_id enquanto houver worker único"
+      ],
+      "known_errors": [
+        "Timeout de 10 segundos é tratado como falha"
+      ],
+      "priority": "high"
+    },
+    {
+      "id": "FR-007",
+      "name": "Reentregar com backoff e mover para a DLQ",
+      "description": "Falhas de entrega são reentregues com backoff e, esgotadas, vão para a Dead Letter Queue",
+      "main_flow": [
+        "Cada falha incrementa a tentativa e agenda a próxima pelo backoff 1m, 5m, 30m, 2h e 12h",
+        "Após 5 tentativas sem sucesso, o evento é movido para a tabela de Dead Letter Queue com o motivo da falha"
+      ],
+      "alternative_flows": [
+        "Cliente que volta a responder dentro da janela recebe o evento normalmente"
+      ],
+      "known_errors": [
+        "Evento que esgota as tentativas fica registrado como falha permanente na DLQ"
+      ],
+      "priority": "high"
+    },
+    {
+      "id": "FR-008",
+      "name": "Reprocessar a DLQ pelo admin",
+      "description": "Um administrador reprocessa manualmente um evento da Dead Letter Queue",
+      "main_flow": [
+        "Administrador envia POST /admin/webhooks/dead-letter/:id/replay",
+        "Sistema recoloca o evento como pendente na outbox e registra quem executou"
+      ],
+      "alternative_flows": [
+        "Apenas usuários com papel ADMIN podem executar, reaproveitando requireRole"
+      ],
+      "known_errors": [
+        "WEBHOOK_FORBIDDEN quando o usuário não é ADMIN",
+        "WEBHOOK_DEAD_LETTER_NOT_FOUND quando o item não existe"
+      ],
+      "priority": "medium"
+    },
+    {
+      "id": "FR-009",
+      "name": "Rotacionar a secret com grace period",
+      "description": "O cliente troca a secret usada na assinatura sem interromper a integração",
+      "main_flow": [
+        "Cliente pede a rotação e o sistema gera uma nova secret",
+        "A secret anterior continua válida por 24 horas em paralelo, depois deixa de funcionar"
+      ],
+      "alternative_flows": [
+        "Durante o grace period, assinaturas com a secret antiga ou a nova são aceitas"
+      ],
+      "known_errors": [
+        "WEBHOOK_NOT_FOUND quando o webhook não existe"
+      ],
+      "priority": "medium"
+    },
+    {
+      "id": "FR-010",
+      "name": "Consultar histórico de entregas",
+      "description": "O cliente audita as últimas entregas de um webhook",
+      "main_flow": [
+        "Cliente envia GET /webhooks/:id/deliveries",
+        "Sistema devolve as últimas entregas com sucesso ou falha, status code, tempo de resposta e tentativa"
+      ],
+      "alternative_flows": [
+        "Lista limitada às entregas mais recentes, aproximadamente as últimas 100"
+      ],
+      "known_errors": [
+        "WEBHOOK_NOT_FOUND quando o webhook não existe"
+      ],
+      "priority": "medium"
+    }
+  ],
+  "non_functional_requirements": [
+    {
+      "category": "performance",
+      "specifications": [
+        "Latência entre a mudança de status e a entrega do webhook abaixo de 10 segundos, com pior caso aproximado de 2 segundos dado o polling de 2 segundos",
+        "Timeout de 10 segundos por tentativa de entrega"
+      ]
+    },
+    {
+      "category": "availability",
+      "specifications": [
+        "Hipótese: 99.9 por cento de uptime mensal do processamento de webhooks, alinhado ao padrão de sistemas voltados ao cliente externo. Não foi definido número na reunião"
+      ]
+    },
+    {
+      "category": "security",
+      "specifications": [
+        "Assinatura HMAC-SHA256 do corpo, com secret única por endpoint e rotação com grace period de 24 horas",
+        "TLS obrigatório, url do webhook precisa ser https",
+        "Replay da DLQ exige papel ADMIN e registra quem executou, para auditoria"
+      ]
+    },
+    {
+      "category": "observability",
+      "specifications": [
+        "Logs estruturados com o logger Pino existente, registrando event_id, webhook_id, status code, tentativa e tempo de resposta",
+        "Métricas de eventos por status da outbox, taxa de sucesso de entrega, latência de entrega e profundidade da DLQ",
+        "Tracing do ciclo de vida do evento, correlacionado pelo event_id, do insert na outbox até a entrega"
+      ]
+    },
+    {
+      "category": "reliability",
+      "specifications": [
+        "Inserção do evento na outbox é transacional com a mudança de status, sem evento órfão",
+        "Garantia at-least-once, com deduplicação pelo cliente via X-Event-Id",
+        "Limite de tamanho de payload de 64KB, com erro caso ultrapasse"
+      ]
+    },
+    {
+      "category": "compatibility",
+      "specifications": [
+        "API REST JSON versionada em /api/v1, seguindo o padrão do OMS",
+        "Sem novas dependências de infraestrutura, usa o MySQL existente"
+      ]
+    },
+    {
+      "category": "compliance",
+      "specifications": [
+        "Trilha de auditoria do replay da DLQ disponível, com identificação de quem executou"
+      ]
+    }
+  ],
+  "architecture": {
+    "approach": "Sistema existente estendido com um novo módulo src/modules/webhooks e um processo worker separado. Comunicação assíncrona via padrão Outbox no MySQL, sem fila ou mensageria externa",
+    "components": [
+      "API do OMS em Node.js e TypeScript com Express, recebe o CRUD de configuração e o endpoint admin de replay",
+      "Worker de webhooks em processo separado em src/worker.ts, com PrismaClient próprio, faz polling e entrega",
+      "MySQL como fonte de verdade, com as tabelas de configuração, outbox, dead letter e entregas",
+      "Sistema do cliente B2B como destino externo dos webhooks"
+    ],
+    "integrations": [
+      "changeStatus do módulo de pedidos chama publishWebhookEvent(tx, ...) na transação, único ponto de contato intrusivo com o código atual",
+      "Entrega HTTP POST outbound assinada para a url configurada pelo cliente"
+    ]
+  },
+  "decisions_tradeoffs": [
+    {
+      "decision": "Padrão Outbox no MySQL em vez de disparo síncrono ou fila externa",
+      "justification": "Garante atomicidade entre a mudança de status e o registro do evento, sem subir infraestrutura nova, adequado a um time pequeno",
+      "trade_off": "Exige um worker de polling e introduz latência mínima de alguns segundos"
+    },
+    {
+      "decision": "Worker em processo separado com polling de 2 segundos",
+      "justification": "Isola o ciclo de vida do worker da API e atende o requisito de menos de 10 segundos, já que o MySQL não tem notificação nativa",
+      "trade_off": "Ordenação garantida apenas por order_id enquanto houver worker único"
+    },
+    {
+      "decision": "Retry com backoff exponencial de 5 tentativas e DLQ separada",
+      "justification": "Cobre janelas de indisponibilidade de horas sem deixar eventos pendurados para sempre, e mantém a outbox principal limpa",
+      "trade_off": "Um cliente fora do ar por mais de aproximadamente 15 horas perde a entrega automática"
+    },
+    {
+      "decision": "Entrega at-least-once com X-Event-Id em vez de exactly-once",
+      "justification": "Exactly-once exigiria coordenação dos dois lados, muito mais complexa. At-least-once com identificador resolve a maioria dos casos",
+      "trade_off": "Transfere a deduplicação para o cliente, que precisa tratar eventos repetidos"
+    }
+  ],
+  "dependencies": [
+    {
+      "type": "technical",
+      "title": "Extensão do método changeStatus",
+      "description": "OrderService.changeStatus precisa passar a chamar publishWebhookEvent(tx, order, from, to) dentro da transação existente. É o único ponto de código atual que precisa ser alterado"
+    },
+    {
+      "type": "technical",
+      "title": "Novo processo worker e script de execução",
+      "description": "É preciso criar o entry-point src/worker.ts e um script npm run worker, com PrismaClient próprio apontando para a mesma DATABASE_URL"
+    },
+    {
+      "type": "organizational",
+      "title": "Revisão de segurança antes do deploy",
+      "description": "Sofia precisa reservar pelo menos dois dias úteis para revisar o código de segurança, em especial HMAC e geração de secret, antes de subir"
+    },
+    {
+      "type": "organizational",
+      "title": "Documentação para os clientes no portal do desenvolvedor",
+      "description": "O produto precisa documentar de forma destacada a deduplicação pelo X-Event-Id e como integrar via API"
+    }
+  ],
+  "risks": [
+    {
+      "risk": "Cliente lento ou indisponível faz eventos falharem e acumularem",
+      "probability": "high",
+      "impact": "Eventos não entregues e crescimento da fila de reentrega",
+      "mitigation": [
+        "Retry com backoff exponencial de 5 tentativas cobrindo aproximadamente 12 a 24 horas",
+        "Dead Letter Queue em tabela separada para não poluir a outbox",
+        "Timeout de 10 segundos por tentativa para não segurar o worker"
+      ],
+      "contingency_plan": "Replay manual pelo endpoint admin após o cliente se restabelecer"
+    },
+    {
+      "risk": "Endpoint admin de replay e o requireRole não têm cobertura de testes hoje",
+      "probability": "medium",
+      "impact": "Falha de autorização poderia expor uma operação sensível de reprocessamento",
+      "mitigation": [
+        "Adicionar testes do endpoint admin cobrindo ADMIN, papel sem permissão e não autenticado",
+        "Revisão de segurança dedicada antes do deploy"
+      ],
+      "contingency_plan": "Desabilitar temporariamente o endpoint de replay até a cobertura estar pronta"
+    },
+    {
+      "risk": "Chamada de publishWebhookEvent pode derrubar a transação de mudança de status",
+      "probability": "low",
+      "impact": "Falha ao inserir na outbox aborta a mudança de status do pedido",
+      "mitigation": [
+        "Manter a função enxuta, apenas um insert indexado"
+      ],
+      "contingency_plan": "Monitorar erros da transação e tratar a atomicidade como comportamento esperado, já que sem evento não deve haver mudança de status"
+    },
+    {
+      "risk": "Crescimento indefinido da tabela outbox",
+      "probability": "medium",
+      "impact": "Degradação de performance de leitura da outbox ao longo do tempo",
+      "mitigation": [
+        "Índices em status e created_at para o worker ler apenas pendentes em lote pequeno",
+        "Monitorar a profundidade da tabela"
+      ],
+      "contingency_plan": "Implementar o arquivamento de entregues, aproximadamente 30 dias, em fase seguinte"
+    }
+  ],
+  "acceptance_criteria": [
+    "Toda mudança de status insere exatamente um evento na outbox por webhook inscrito, na mesma transação, e um rollback não deixa evento órfão",
+    "Nenhum evento é inserido quando nenhum webhook do customer ouve aquele status",
+    "O worker entrega em menos de 10 segundos no caso comum e aplica timeout de 10 segundos por tentativa",
+    "Falhas seguem o backoff 1m, 5m, 30m, 2h e 12h e, após 5 tentativas, o evento está na Dead Letter Queue",
+    "Toda entrega leva os headers X-Event-Id, X-Signature, X-Timestamp e X-Webhook-Id, com assinatura HMAC-SHA256 válida",
+    "O replay da Dead Letter Queue exige papel ADMIN e registra quem executou",
+    "Uma url http é recusada com WEBHOOK_INVALID_URL e um payload acima de 64KB é recusado",
+    "A rotação de secret mantém a secret anterior válida por 24 horas"
+  ],
+  "testing_validation": {
+    "test_types": [
+      "Testes unitários para as regras críticas, como o cálculo do backoff, a geração e verificação do HMAC e o filtro de eventos por status",
+      "Testes de integração para o fluxo principal, da mudança de status até a entrega, incluindo o comportamento transacional da outbox",
+      "Testes de integração para retry, movimentação para a Dead Letter Queue e replay",
+      "Testes de segurança para a autorização do endpoint admin, cobrindo ADMIN, papel sem permissão e não autenticado"
+    ],
+    "strategy": "TDD para a lógica crítica de outbox, retry e assinatura, QA manual guiado por roteiro para os fluxos de CRUD e replay, e revisão de segurança dedicada da Sofia antes do deploy"
+  }
+}
