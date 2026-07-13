@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FDD · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="index.html">Início</a><a href="prd.html">PRD</a><a href="rfc.html">RFC</a><a href="fdd.html" class="active">FDD</a><a href="adrs/index.html">ADRs</a><a href="tracker.html">Tracker</a><a href="diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h1 id="fdd-sistema-de-webhooks-de-notificacao-de-pedidos">FDD — Sistema de Webhooks de Notificação de Pedidos</h1>
+<div class="table-wrap"><table><thead><tr><th>Campo</th><th>Valor</th></tr></thead><tbody><tr><td><strong>Status</strong></td><td>Proposto</td></tr><tr><td><strong>Feature</strong></td><td>Webhooks outbound de notificação de mudança de status de pedido</td></tr><tr><td><strong>Documentos relacionados</strong></td><td><a href="prd.html">PRD</a>, <a href="rfc.html">RFC</a>, <a href="adrs/index.html">ADRs</a></td></tr></tbody></table></div>
+<h3 id="diagramas">Diagramas</h3>
+<ul><li><strong>Mermaid</strong> (renderiza no GitHub): [<code>diagrams/webhooks-diagrams.md</code>](./diagrams/webhooks-diagrams.md) — 7 diagramas (visão geral, criação na outbox, <code>publishWebhookEvent</code>, entrega pelo worker, retry/DLQ, replay, modelo de dados).</li><li><strong>C4</strong> (PlantUML): [<code>diagrams/</code>](./diagrams/) — <code>webhooks-c1..c4.puml</code> (contexto, container, componente, código) + análise em [<code>webhooks-c4.md</code>](./diagrams/webhooks-c4.md).</li></ul>
+<hr>
+<h2 id="1-contexto-e-motivacao-tecnica">1. Contexto e motivação técnica</h2>
+<p>O OMS altera o status de pedidos em <code>OrderService.changeStatus</code> (<code>src/modules/orders/order.service.ts:126-179</code>), dentro de uma transação Prisma que atualiza o pedido, grava histórico e ajusta estoque. Não há hoje nenhum mecanismo de notificação externa. Clientes B2B precisam ser avisados em &lt; 10s quando o status muda, sem que a chamada externa comprometa a transação crítica de pedidos. [09:04 Bruno]</p>
+<p>A solução adotada é o <strong>padrão Outbox</strong> (ver <a href="adrs/adr-001.html">ADR-001</a>): o evento é persistido na mesma transação da mudança de status e entregue de forma assíncrona por um worker dedicado.</p>
+<h2 id="2-objetivos-tecnicos">2. Objetivos técnicos</h2>
+<ul><li>Emitir um evento por mudança de status <strong>atômico</strong> com a transação de <code>changeStatus</code>.</li><li>Entregar via HTTP POST assinado (HMAC-SHA256) com latência de pior caso ~2s.</li><li>Garantir entrega <strong>at-least-once</strong> com deduplicação pelo cliente (<code>X-Event-Id</code>).</li><li>Resiliência a clientes indisponíveis: retry com backoff + DLQ.</li><li>Reusar 100% dos padrões do projeto (módulos, <code>AppError</code>, Pino, <code>requireRole</code>), sem infra nova.</li></ul>
+<h2 id="3-escopo-e-exclusoes">3. Escopo e exclusões</h2>
+<p><strong>No escopo:</strong> CRUD de configuração de webhook, filtro por status, tabela outbox, worker de entrega, retry/backoff, DLQ + replay admin, HMAC + rotação de secret, histórico de entregas.</p>
+<p><strong>Fora de escopo:</strong> e-mail de aviso de falha ao cliente [09:37], dashboard/painel visual [09:40], rate limiting de saída [09:39], ordering global entre pedidos [09:13], arquivamento da outbox (~30 dias) [09:08], endurecimento de roles do CRUD [09:37].</p>
+<h2 id="4-modelo-de-dados-novas-tabelas">4. Modelo de dados (novas tabelas)</h2>
+<p>Todas com PK <code>id</code> em UUID, seguindo o padrão do projeto [09:51]. Detalhe de colunas fica a cargo da implementação; visão geral:</p>
+<ul><li>**<code>webhook_config</code>** — <code>url</code> (https), <code>secret</code>, <code>secret_previous</code>, <code>secret_previous_expires_at</code>,</li></ul>
+<p>  <code>customer_id</code>, <code>events</code> (lista de status), <code>active</code>, timestamps.</p>
+<ul><li>**<code>webhook_outbox</code>** — <code>event_id</code> (UUID), <code>event_type</code>, <code>payload</code> (snapshot JSON), <code>status</code></li></ul>
+<p>  (<code>PENDING|PROCESSING|DELIVERED|FAILED</code>), <code>attempts</code>, <code>next_attempt_at</code>, <code>created_at</code>. Índices em   <code>status</code> e <code>created_at</code>. [09:08]</p>
+<ul><li>**<code>webhook_dead_letter</code>** — <code>payload</code>, <code>failure_reason</code>, <code>webhook_config_id</code>, <code>created_at</code>. [09:18]</li><li>**<code>webhook_delivery</code>** — histórico: <code>webhook_config_id</code>, <code>event_id</code>, <code>success</code>, <code>status_code</code>,</li></ul>
+<p>  <code>response_body</code>, <code>duration_ms</code>, <code>created_at</code>. [09:34]</p>
+<h2 id="5-fluxos-detalhados">5. Fluxos detalhados</h2>
+<h3 id="51-criacao-do-evento-na-outbox-dentro-da-transacao">5.1 Criação do evento na outbox (dentro da transação)</h3>
+<ol><li><code>changeStatus</code> valida a transição via <code>canTransition</code> (<code>src/modules/orders/order.status.ts</code>).</li><li>Após <code>tx.orderStatusHistory.create</code> (<code>order.service.ts:159-167</code>) e <strong>antes</strong> do</li></ol>
+<p>   <code>refreshed</code> (<code>order.service.ts:169</code>), chama <code>publishWebhookEvent(tx, order, from, to)</code>. [09:41]</p>
+<ol><li><code>publishWebhookEvent</code> consulta os <code>webhook_config</code> <strong>ativos</strong> do <code>customer_id</code> do pedido cujo</li></ol>
+<p>   <code>events</code> inclui <code>to</code>. Se nenhum, <strong>não insere</strong> (economiza linha). [09:34]</p>
+<ol><li>Para cada config correspondente, insere uma linha em <code>webhook_outbox</code> com <code>event_id</code> novo</li></ol>
+<p>   (UUID) e o <code>payload</code> já renderizado (snapshot). [09:52]</p>
+<ol><li>Se o insert falhar, a transação inteira sofre rollback — status não muda sem evento. [09:40]</li></ol>
+<blockquote><p><strong>Nota de implementação (armadilha):</strong> neste ponto <code>order.status</code> ainda é o valor <strong>antigo</strong> (o <code>update</code> da linha 158 não altera o objeto <code>order</code> em memória). As pontas da transição devem vir dos parâmetros <code>from</code>/<code>to</code>, nunca de reler <code>order.status</code>.</p></blockquote>
+<h3 id="52-processamento-pelo-worker">5.2 Processamento pelo worker</h3>
+<ol><li>Worker (<code>src/worker.ts</code>) em processo separado, <code>PrismaClient</code> próprio, loop a cada 2s. [ADR-002]</li><li>Busca eventos <code>PENDING</code> com <code>next_attempt_at &lt;= now</code>, ordenados por <code>created_at</code>, em batch pequeno.</li><li>Marca <code>PROCESSING</code>, monta headers, assina com HMAC-SHA256, faz POST (timeout 10s). [09:42]</li><li>Resposta 2xx → <code>DELIVERED</code> + registra em <code>webhook_delivery</code>. Caso contrário → fluxo de retry.</li></ol>
+<h3 id="53-retry-e-dlq">5.3 Retry e DLQ</h3>
+<ol><li>Falha (status ≥ 400, timeout, erro de rede) incrementa <code>attempts</code> e agenda <code>next_attempt_at</code></li></ol>
+<p>   pelo backoff <strong>1m / 5m / 30m / 2h / 12h</strong>. [ADR-003]</p>
+<ol><li>Ao atingir <strong>5 tentativas</strong> sem sucesso, move o evento para <code>webhook_dead_letter</code> (com</li></ol>
+<p>   <code>failure_reason</code>) e marca a outbox como <code>FAILED</code>.</p>
+<ol><li>Replay: <code>POST /admin/webhooks/dead-letter/:id/replay</code> (role <code>ADMIN</code>) recria o evento como</li></ol>
+<p>   <code>PENDING</code> na outbox e loga quem executou. [09:36]</p>
+<h2 id="6-contratos-publicos-endpoints-http">6. Contratos públicos (endpoints HTTP)</h2>
+<p>Base: <code>/api/v1</code>. Todos os endpoints de configuração exigem <code>authenticate</code>; o replay exige <code>requireRole('ADMIN')</code>. Envelope de resposta segue o padrão do projeto (<code>src/shared/http/response.ts</code>).</p>
+<h3 id="61-post-webhooks-cadastrar-webhook">6.1 <code>POST /webhooks</code> — cadastrar webhook</h3>
+<p>Request:</p>
+<pre><code class="language-json">{
+  "customerId": "c1a2...",
+  "url": "https://cliente.exemplo.com/webhooks/pedidos",
+  "events": ["SHIPPED", "DELIVERED"]
+}</code></pre>
+<p>Response <code>201 Created</code> (a <code>secret</code> só é devolvida na criação [09:31]):</p>
+<pre><code class="language-json">{
+  "id": "wh_9f8e...",
+  "customerId": "c1a2...",
+  "url": "https://cliente.exemplo.com/webhooks/pedidos",
+  "events": ["SHIPPED", "DELIVERED"],
+  "secret": "whsec_3a7b9c1d...",
+  "active": true,
+  "createdAt": "2026-07-10T12:00:00.000Z"
+}</code></pre>
+<p>Status: <code>201</code>, <code>400</code> (<code>WEBHOOK_INVALID_URL</code>, <code>WEBHOOK_INVALID_EVENT</code>), <code>401</code>, <code>409</code> (<code>WEBHOOK_ALREADY_EXISTS</code>).</p>
+<h3 id="62-patch-webhooksid-editar-webhook">6.2 <code>PATCH /webhooks/:id</code> — editar webhook</h3>
+<p>Request (campos parciais):</p>
+<pre><code class="language-json">{ "events": ["PAID", "SHIPPED", "DELIVERED"], "active": false }</code></pre>
+<p>Response <code>200 OK</code>:</p>
+<pre><code class="language-json">{ "id": "wh_9f8e...", "events": ["PAID","SHIPPED","DELIVERED"], "active": false, "updatedAt": "2026-07-10T12:05:00.000Z" }</code></pre>
+<p>Status: <code>200</code>, <code>400</code>, <code>401</code>, <code>404</code> (<code>WEBHOOK_NOT_FOUND</code>).</p>
+<h3 id="63-get-webhookscustomerid-listar-webhooks-do-customer">6.3 <code>GET /webhooks?customerId=...</code> — listar webhooks do customer</h3>
+<p>Response <code>200 OK</code> (secret nunca é retornada em leitura):</p>
+<pre><code class="language-json">{
+  "data": [
+    { "id": "wh_9f8e...", "url": "https://cliente.exemplo.com/webhooks/pedidos", "events": ["SHIPPED","DELIVERED"], "active": true }
+  ],
+  "meta": { "total": 1 }
+}</code></pre>
+<p>Status: <code>200</code>, <code>401</code>.</p>
+<h3 id="64-get-webhooksiddeliveries-historico-de-entregas">6.4 <code>GET /webhooks/:id/deliveries</code> — histórico de entregas</h3>
+<p>Response <code>200 OK</code> (últimas ~100 entregas [09:34]):</p>
+<pre><code class="language-json">{
+  "data": [
+    {
+      "eventId": "evt_5b1c...",
+      "success": false,
+      "statusCode": 503,
+      "durationMs": 1042,
+      "attempt": 2,
+      "createdAt": "2026-07-10T12:03:11.000Z"
+    }
+  ],
+  "meta": { "total": 1 }
+}</code></pre>
+<p>Status: <code>200</code>, <code>401</code>, <code>404</code> (<code>WEBHOOK_NOT_FOUND</code>).</p>
+<h3 id="65-post-webhooksidrotate-secret-rotacionar-secret">6.5 <code>POST /webhooks/:id/rotate-secret</code> — rotacionar secret</h3>
+<p>Response <code>200 OK</code> (secret antiga válida por 24h [09:21]):</p>
+<pre><code class="language-json">{ "id": "wh_9f8e...", "secret": "whsec_new_88f2...", "previousSecretExpiresAt": "2026-07-11T12:10:00.000Z" }</code></pre>
+<p>Status: <code>200</code>, <code>401</code>, <code>404</code>.</p>
+<h3 id="66-post-adminwebhooksdead-letteridreplay-reprocessar-dlq-admin">6.6 <code>POST /admin/webhooks/dead-letter/:id/replay</code> — reprocessar DLQ (ADMIN)</h3>
+<p>Response <code>202 Accepted</code>:</p>
+<pre><code class="language-json">{ "deadLetterId": "dl_2c9a...", "requeuedEventId": "evt_5b1c...", "status": "PENDING" }</code></pre>
+<p>Status: <code>202</code>, <code>401</code>, <code>403</code> (<code>WEBHOOK_FORBIDDEN</code>), <code>404</code> (<code>WEBHOOK_DEAD_LETTER_NOT_FOUND</code>).</p>
+<h3 id="67-requisicao-enviada-ao-cliente-webhook-outbound">6.7 Requisição enviada ao cliente (webhook outbound)</h3>
+<p><code>POST {config.url}</code> com headers [09:44]:</p>
+<pre><code>Content-Type: application/json
+X-Event-Id: evt_5b1c...
+X-Webhook-Id: wh_9f8e...
+X-Signature: sha256=6f3b...        (HMAC-SHA256 do corpo com a secret do endpoint)
+X-Timestamp: 2026-07-10T12:00:02.000Z</code></pre>
+<p>Body (payload enxuto, sem <code>items</code> [09:43]):</p>
+<pre><code class="language-json">{
+  "event_id": "evt_5b1c...",
+  "event_type": "order.status_changed",
+  "timestamp": "2026-07-10T12:00:02.000Z",
+  "order_id": "o_7d2e...",
+  "order_number": "ORD-2026-000123",
+  "from_status": "PROCESSING",
+  "to_status": "SHIPPED",
+  "customer_id": "c1a2...",
+  "total_cents": 149900
+}</code></pre>
+<p>Sucesso esperado do cliente: <code>2xx</code>. Qualquer outra resposta ou timeout (10s) conta como falha.</p>
+<h2 id="7-matriz-de-erros-previstos-webhook">7. Matriz de erros previstos (<code>WEBHOOK_*</code>)</h2>
+<p>Todos estendem <code>AppError</code> (<code>src/shared/errors/app-error.ts</code>); o error middleware (<code>src/middlewares/error.middleware.ts</code>) os reconhece por <code>instanceof</code>. [ADR-006]</p>
+<div class="table-wrap"><table><thead><tr><th>Código</th><th>HTTP</th><th>Quando ocorre</th></tr></thead><tbody><tr><td><code>WEBHOOK_NOT_FOUND</code></td><td>404</td><td>Webhook inexistente em edição/consulta</td></tr><tr><td><code>WEBHOOK_INVALID_URL</code></td><td>400</td><td>URL não é https (validação Zod) [09:23]</td></tr><tr><td><code>WEBHOOK_INVALID_EVENT</code></td><td>400</td><td>Status informado em <code>events</code> não pertence à máquina de estados</td></tr><tr><td><code>WEBHOOK_ALREADY_EXISTS</code></td><td>409</td><td>Já existe webhook idêntico (url) para o customer</td></tr><tr><td><code>WEBHOOK_SECRET_REQUIRED</code></td><td>400</td><td>Operação exige secret ausente</td></tr><tr><td><code>WEBHOOK_PAYLOAD_TOO_LARGE</code></td><td>422</td><td>Payload renderizado excede 64KB [09:24]</td></tr><tr><td><code>WEBHOOK_DEAD_LETTER_NOT_FOUND</code></td><td>404</td><td>Replay de DLQ inexistente</td></tr><tr><td><code>WEBHOOK_FORBIDDEN</code></td><td>403</td><td>Replay sem role <code>ADMIN</code></td></tr></tbody></table></div>
+<h2 id="8-estrategias-de-resiliencia">8. Estratégias de resiliência</h2>
+<ul><li><strong>Timeout:</strong> 10s por tentativa de entrega; excedeu → falha e retry. [09:42]</li><li><strong>Retry/backoff:</strong> exponencial <code>1m/5m/30m/2h/12h</code>, 5 tentativas. [ADR-003]</li><li><strong>DLQ:</strong> eventos esgotados vão para <code>webhook_dead_letter</code>, com replay manual admin. [ADR-003]</li><li><strong>Atomicidade:</strong> outbox na mesma transação de <code>changeStatus</code> — sem evento perdido. [ADR-001]</li><li><strong>Fallback de ordenação:</strong> single-worker garante ordem por <code>order_id</code> (limitação conhecida). [09:13]</li><li><strong>Idempotência:</strong> <code>event_id</code> estável por evento; cliente deduplica. [ADR-005]</li></ul>
+<h2 id="9-observabilidade">9. Observabilidade</h2>
+<ul><li><strong>Logs:</strong> logger Pino existente (<code>src/shared/logger/index.ts</code>), sem logger novo [09:29]. Cada</li></ul>
+<p>  tentativa de entrega loga <code>event_id</code>, <code>webhook_id</code>, <code>status_code</code>, <code>attempt</code>, <code>duration_ms</code>.   Replay admin loga o usuário que executou (auditoria [09:36]).</p>
+<ul><li><strong>Métricas:</strong> contadores de eventos por status da outbox (<code>PENDING/DELIVERED/FAILED</code>), taxa de</li></ul>
+<p>  sucesso de entrega, latência de entrega, profundidade da DLQ, distribuição de tentativas.</p>
+<ul><li><strong>Tracing:</strong> propagar um correlation id (<code>event_id</code>) do insert na outbox até a entrega, para</li></ul>
+<p>  rastrear o ciclo de vida completo de um evento entre a API e o worker.</p>
+<h2 id="10-integracao-com-o-sistema-existente">10. Integração com o sistema existente</h2>
+<p>Esta seção nomeia os pontos reais do código-base e como o módulo de webhooks se integra a cada um.</p>
+<ol><li>**<code>src/modules/orders/order.service.ts</code>** — <code>changeStatus</code> (linhas 126-179) é estendido para</li></ol>
+<p>   chamar <code>publishWebhookEvent(tx, order, from, to)</code> entre a criação do histórico (linha 167) e o    <code>refreshed</code> (linha 169), <strong>dentro</strong> da transação Prisma existente. É a única alteração    intrusiva no código atual. [09:41]</p>
+<ol><li>**<code>src/modules/orders/order.status.ts</code>** — a máquina de estados (6 status, 8 transições;</li></ol>
+<p>   <code>canTransition</code>, <code>allowedTransitions</code>, <code>isTerminal</code>) é a fonte de verdade para validar o campo    <code>events</code> do webhook e para os valores <code>from_status</code>/<code>to_status</code> do payload.</p>
+<ol><li>**<code>src/shared/errors/app-error.ts</code>** — a família de erros <code>WEBHOOK_*</code> é criada como subclasses</li></ol>
+<p>   de <code>AppError</code>, reaproveitando o contrato <code>{ statusCode, errorCode, details }</code> já existente.</p>
+<ol><li>**<code>src/middlewares/error.middleware.ts</code>** — o error middleware centralizado trata os novos</li></ol>
+<p>   erros sem alteração, pois reconhece qualquer <code>AppError</code> por <code>instanceof</code>. [09:29]</p>
+<ol><li>**<code>src/middlewares/auth.middleware.ts</code>** — <code>authenticate</code> protege o CRUD; <code>requireRole('ADMIN')</code></li></ol>
+<p>   é reusado no endpoint de replay de DLQ, no mesmo padrão de <code>GET /users/:id</code>. [09:36]</p>
+<ol><li>**<code>src/shared/logger/index.ts</code>** — logger Pino reutilizado pela API e pelo worker. [09:29]</li><li>**<code>src/server.ts</code>** — serve de modelo para o novo entry-point <code>src/worker.ts</code>; o worker usa a</li></ol>
+<p>   mesma <code>DATABASE_URL</code> com <code>PrismaClient</code> próprio por processo. [09:11, 09:30]</p>
+<ol><li>**<code>prisma/schema.prisma</code>** — recebe os novos modelos (<code>webhook_config</code>, <code>webhook_outbox</code>,</li></ol>
+<p>   <code>webhook_dead_letter</code>, <code>webhook_delivery</code>) e uma migração correspondente.</p>
+<h2 id="11-dependencias-e-compatibilidade">11. Dependências e compatibilidade</h2>
+<ul><li><strong>Runtime:</strong> Node.js + TypeScript, Express, Prisma/MySQL já existentes — sem novas dependências</li></ul>
+<p>  de infraestrutura (sem Redis/broker). [09:07]</p>
+<ul><li><strong>HMAC:</strong> <code>crypto</code> nativo do Node (sem lib externa).</li><li><strong>Processo:</strong> novo script <code>npm run worker</code> apontando para <code>src/worker.ts</code>.</li><li><strong>Banco:</strong> mesma instância/<code>DATABASE_URL</code>; o worker abre <code>PrismaClient</code> próprio. [09:30]</li><li><strong>Compatibilidade:</strong> mudança aditiva; o único ponto de contato com código existente é a chamada</li></ul>
+<p>  em <code>changeStatus</code>, protegida pela transação.</p>
+<h2 id="12-criterios-de-aceite-tecnicos">12. Critérios de aceite técnicos</h2>
+<ul><li>☐ Mudança de status insere exatamente um evento na outbox por webhook inscrito, na mesma</li></ul>
+<p>  transação; rollback da transação não deixa evento órfão.</p>
+<ul><li>☐ Nenhum evento é inserido se nenhum webhook do customer ouve aquele status.</li><li>☐ Worker entrega em ≤ ~2s (pior caso) sob carga normal; timeout de 10s aplicado por tentativa.</li><li>☐ Retry segue <code>1m/5m/30m/2h/12h</code>; após 5 falhas o evento está na DLQ.</li><li>☐ Toda entrega tem <code>X-Signature</code> válido (HMAC-SHA256) e <code>X-Event-Id</code> único.</li><li>☐ Replay de DLQ exige <code>ADMIN</code> e registra auditoria.</li><li>☐ Erros usam códigos <code>WEBHOOK_*</code> e passam pelo error middleware sem alteração deste.</li><li>☐ URL http é rejeitada com <code>WEBHOOK_INVALID_URL</code>; payload &gt; 64KB com <code>WEBHOOK_PAYLOAD_TOO_LARGE</code>.</li></ul>
+<h2 id="13-riscos-e-mitigacao">13. Riscos e mitigação</h2>
+<div class="table-wrap"><table><thead><tr><th>Risco</th><th>Mitigação</th></tr></thead><tbody><tr><td>Chamada de <code>publishWebhookEvent</code> lançar exceção e derrubar <code>changeStatus</code></td><td>Manter a função enxuta (apenas insert indexado); a atomicidade é o objetivo — falha aqui deve mesmo abortar a mudança. [09:40]</td></tr><tr><td><code>requireRole</code>/replay admin sem cobertura de teste hoje</td><td>Adicionar testes do endpoint admin antes do deploy; revisão de segurança dedicada. [09:36, 09:46]</td></tr><tr><td>Crescimento de <code>webhook_outbox</code></td><td>Arquivamento de entregues (~30 dias) — fora do escopo, mas monitorar profundidade da tabela. [09:08]</td></tr><tr><td>Colisão de códigos <code>WEBHOOK_*</code> (sem registro central)</td><td>Convenção de prefixo + revisão em code review. [ADR-006]</td></tr><tr><td>Cliente lento tratado como falha</td><td>Timeout de 10s documentado; 5 tentativas absorvem lentidão transitória. [09:42]</td></tr></tbody></table></div>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

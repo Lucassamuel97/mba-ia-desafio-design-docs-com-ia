@@ -9,3 +9,6 @@ coverage/
 .idea/
 .vscode/
 *.tsbuildinfo
+
+# artefato transitório do mecanismo de atualização da doc viva
+docs/site/update-plan.json

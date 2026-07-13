@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagramas · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="index.html">Início</a><a href="prd.html">PRD</a><a href="rfc.html">RFC</a><a href="fdd.html">FDD</a><a href="adrs/index.html">ADRs</a><a href="tracker.html">Tracker</a><a href="diagrams.html" class="active">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h1 id="diagramas-mermaid---sistema-de-webhooks-de-notificacao-de-pedidos">Diagramas Mermaid - Sistema de Webhooks de Notificação de Pedidos</h1>
+<h2 id="visao-geral">Visão Geral</h2>
+<p>O sistema adiciona notificação externa via webhooks HTTP quando o status de um pedido muda no OMS. A solução usa o padrão Outbox: o evento é gravado na mesma transação Prisma de <code>changeStatus</code> e entregue de forma assíncrona por um worker dedicado (<code>src/worker.ts</code>), com retry exponencial e DLQ para clientes indisponíveis. Toda entrega é assinada com HMAC-SHA256 e identificada por um <code>event_id</code> único, garantindo entrega at-least-once com deduplicação pelo cliente.</p>
+<h2 id="elementos-identificados">Elementos Identificados</h2>
+<h3 id="fluxos-externos">Fluxos externos</h3>
+<ul><li>Cliente B2B recebendo <code>POST {config.url}</code> assinado (HMAC-SHA256) com headers <code>X-Event-Id</code>,</li></ul>
+<p>  <code>X-Webhook-Id</code>, <code>X-Signature</code>, <code>X-Timestamp</code>.</p>
+<ul><li>Endpoints públicos: <code>POST /webhooks</code>, <code>PATCH /webhooks/:id</code>, <code>GET /webhooks</code>,</li></ul>
+<p>  <code>GET /webhooks/:id/deliveries</code>, <code>POST /webhooks/:id/rotate-secret</code>.</p>
+<ul><li>Endpoint administrativo: <code>POST /admin/webhooks/dead-letter/:id/replay</code> (role <code>ADMIN</code>).</li><li>Autenticação via <code>authenticate</code> (CRUD) e <code>requireRole('ADMIN')</code> (replay).</li></ul>
+<h3 id="processos-internos">Processos internos</h3>
+<ul><li><code>OrderService.changeStatus</code> executando dentro de uma transação Prisma.</li><li><code>canTransition</code> validando a transição de status (<code>order.status.ts</code>).</li><li><code>publishWebhookEvent(tx, order, from, to)</code> criando o evento na outbox.</li><li>Worker (<code>src/worker.ts</code>) com loop de polling a cada 2s e <code>PrismaClient</code> próprio.</li><li>Assinatura HMAC-SHA256 e envio HTTP com timeout de 10s.</li><li>Retry com backoff exponencial e movimentação para <code>webhook_dead_letter</code>.</li><li>Replay administrativo recriando o evento como <code>PENDING</code>.</li></ul>
+<h3 id="variacoes-de-comportamento">Variações de comportamento</h3>
+<ul><li>Existência ou não de <code>webhook_config</code> ativo cujo <code>events</code> inclui o status de destino.</li><li>Resposta <code>2xx</code> (sucesso) versus falha (status &gt;= 400, timeout, erro de rede).</li><li>Número de tentativas menor que 5 (retry) versus igual a 5 (movimentação para DLQ).</li><li>Rotação de secret: <code>secret</code> atual versus <code>secret_previous</code> válida por 24h.</li></ul>
+<h3 id="contratos-publicos">Contratos públicos</h3>
+<ul><li><code>POST /webhooks</code>, <code>PATCH /webhooks/:id</code>, <code>GET /webhooks</code>, <code>GET /webhooks/:id/deliveries</code>,</li></ul>
+<p>  <code>POST /webhooks/:id/rotate-secret</code>.</p>
+<ul><li><code>POST /admin/webhooks/dead-letter/:id/replay</code>.</li><li>Payload outbound <code>order.status_changed</code> enviado ao cliente.</li><li>Família de erros <code>WEBHOOK_*</code>, subclasses de <code>AppError</code>.</li></ul>
+<h2 id="diagramas">Diagramas</h2>
+<h3 id="visao-geral-do-fluxo">Visão Geral do Fluxo</h3>
+<p>Este flowchart apresenta o caminho ponta a ponta do sistema, desde a mudança de status do pedido até a entrega confirmada no cliente, incluindo os desvios de retry e DLQ. É o ponto de partida recomendado para entender a arquitetura antes de aprofundar em cada etapa, pois conecta o padrão Outbox, o worker assíncrono e o mecanismo de resiliência em uma única imagem. Use este diagrama para explicar o desenho geral a alguém que ainda não conhece o sistema.</p>
+<pre class="mermaid">flowchart LR
+    A[Pedido muda status] --&gt; B{Existe config ativo}
+    B --&gt;|não| C[Nenhum evento criado]
+    B --&gt;|sim| D[Insere evento outbox]
+    D --&gt; E[Worker faz polling]
+    E --&gt; F[Envia POST assinado]
+    F --&gt;|sucesso| G[Marca DELIVERED]
+    F --&gt;|falha| H[Retry com backoff]
+    H --&gt;|esgotou tentativas| I[Move para DLQ]
+    I --&gt; J[Replay admin]
+    J --&gt; E</pre>
+<p><strong>Notas</strong>:</p>
+<ul><li>A verificação de config ativo evita gravar linhas desnecessárias na outbox quando nenhum</li></ul>
+<p>  cliente está inscrito naquele status.</p>
+<ul><li>O ciclo de retry e o replay administrativo realimentam o worker, fechando o loop de entrega.</li></ul>
+<hr>
+<h3 id="criacao-do-evento-na-outbox">Criação do Evento na Outbox</h3>
+<p>Este diagrama de sequência detalha o trecho mais crítico do sistema: a inserção do evento de webhook dentro da mesma transação Prisma que muda o status do pedido. Ele mostra como <code>publishWebhookEvent</code> consulta as configurações ativas, decide se insere ou não o evento, e como uma falha no insert provoca rollback de toda a transação de <code>changeStatus</code>. É essencial para entender a garantia de atomicidade que fundamenta o padrão Outbox adotado.</p>
+<pre class="mermaid">sequenceDiagram
+    participant O as OrderService
+    participant Tx as "Transação Prisma"
+    participant Pw as publishWebhookEvent
+    participant Cfg as webhook_config
+    participant Ob as webhook_outbox
+
+    O-&gt;&gt;Tx: changeStatus(from, to)
+    Tx-&gt;&gt;Tx: canTransition(from, to)
+    Tx-&gt;&gt;Tx: cria orderStatusHistory
+    Tx-&gt;&gt;Pw: publishWebhookEvent(tx, order, from, to)
+    Pw-&gt;&gt;Cfg: busca configs ativos por to
+    Cfg--&gt;&gt;Pw: lista de configs
+    alt nenhum config encontrado
+        Pw--&gt;&gt;Tx: retorna sem inserir
+    else configs encontrados
+        Pw-&gt;&gt;Ob: insere evento (event_id, payload)
+        Ob--&gt;&gt;Pw: OK ou erro
+    end
+    alt insert falhou
+        Pw--&gt;&gt;Tx: propaga erro
+        Tx--&gt;&gt;O: rollback da transação
+    else insert ok
+        Tx--&gt;&gt;O: commit da transação
+    end</pre>
+<p><strong>Notas</strong>:</p>
+<ul><li>A chamada ocorre entre a criação do histórico e o <code>refreshed</code>, dentro da mesma transação.</li><li>Se nenhum <code>webhook_config</code> ativo ouvir o status de destino, nenhuma linha é inserida.</li><li>Falha no insert derruba a transação inteira: o status não muda sem o evento correspondente.</li></ul>
+<hr>
+<h3 id="logica-de-publishwebhookevent">Lógica de publishWebhookEvent</h3>
+<p>Este flowchart isola a lógica de decisão dentro de <code>publishWebhookEvent</code>, complementando o diagrama de sequência anterior com uma visão de algoritmo. Ele é relevante porque a FDD aponta uma armadilha de implementação: neste ponto da transação, <code>order.status</code> ainda contém o valor antigo, então a lógica deve sempre usar os parâmetros <code>from</code>/<code>to</code> recebidos, nunca reler o objeto <code>order</code>. Use este diagrama ao implementar ou revisar a função para evitar esse erro sutil.</p>
+<pre class="mermaid">flowchart TD
+    Start[Recebe parametros from/to] --&gt; Busca[Busca configs ativos]
+    Busca --&gt; Filtra{Config ouve status}
+    Filtra --&gt;|não| SemEvento[Nenhum insert]
+    Filtra --&gt;|sim| Gera[Gera event_id e payload]
+    Gera --&gt; Insere[Insere linha outbox]
+    Insere --&gt; Erro{Insert falhou}
+    Erro --&gt;|sim| Rollback[Rollback da transação]
+    Erro --&gt;|não| Sucesso[Commit da transação]
+    SemEvento --&gt; Sucesso</pre>
+<p><strong>Notas</strong>:</p>
+<ul><li>A decisão de "config ouve status" usa o parâmetro <code>to</code>, e não uma releitura de <code>order.status</code>,</li></ul>
+<p>  que ainda estaria com o valor antigo neste ponto da transação.</p>
+<ul><li>O <code>payload</code> é renderizado como snapshot no momento do insert, não recalculado depois.</li></ul>
+<hr>
+<h3 id="processamento-e-entrega-pelo-worker">Processamento e Entrega pelo Worker</h3>
+<p>Este diagrama de sequência mostra o ciclo de vida de um evento depois que ele chega à outbox: o worker dedicado faz polling periódico, assina o payload com HMAC-SHA256 e realiza a entrega HTTP com timeout de 10s. Ele é fundamental para entender como o sistema desacopla a entrega externa da transação crítica de pedidos, e como o resultado da chamada determina se o evento é marcado como entregue ou encaminhado ao fluxo de retry.</p>
+<pre class="mermaid">sequenceDiagram
+    participant W as Worker
+    participant Ob as webhook_outbox
+    participant Cli as "Cliente B2B"
+    participant Del as webhook_delivery
+
+    loop A cada 2 segundos
+        W-&gt;&gt;Ob: busca PENDING prontos
+    end
+    Ob--&gt;&gt;W: batch de eventos
+    W-&gt;&gt;Ob: marca PROCESSING
+    W-&gt;&gt;W: assina HMAC-SHA256
+    W-&gt;&gt;Cli: POST payload (timeout 10s)
+    alt resposta 2xx
+        Cli--&gt;&gt;W: 2xx OK
+        W-&gt;&gt;Ob: marca DELIVERED
+        W-&gt;&gt;Del: registra entrega
+    else falha ou timeout
+        Cli--&gt;&gt;W: erro ou timeout
+        W-&gt;&gt;Ob: aciona retry
+    end</pre>
+<p><strong>Notas</strong>:</p>
+<ul><li>O worker roda em processo separado, com <code>PrismaClient</code> próprio, buscando eventos</li></ul>
+<p>  <code>PENDING</code> com <code>next_attempt_at &lt;= now</code>, ordenados por <code>created_at</code>, em lote pequeno.</p>
+<ul><li>Qualquer resposta diferente de <code>2xx</code> ou timeout de 10s é tratada como falha.</li></ul>
+<hr>
+<h3 id="retry-backoff-e-dlq">Retry, Backoff e DLQ</h3>
+<p>Este flowchart descreve o mecanismo de resiliência acionado quando uma entrega falha: o número de tentativas é incrementado, um novo horário de tentativa é agendado segundo o backoff exponencial, e ao atingir o limite de tentativas o evento é movido para a dead letter. Este é um dos pontos mais importantes do sistema para garantir que falhas transitórias de clientes não causem perda de eventos, e para deixar claro quando a intervenção manual via replay se torna necessária.</p>
+<pre class="mermaid">flowchart TD
+    Falha[Falha na entrega] --&gt; Incrementa[Incrementa attempts]
+    Incrementa --&gt; Agenda[Agenda next_attempt_at]
+    Agenda --&gt; Verifica{Cinco tentativas atingidas}
+    Verifica --&gt;|não| Espera[Aguarda backoff]
+    Espera --&gt; Reenvia[Nova tentativa]
+    Verifica --&gt;|sim| MoveDlq[Move para dead letter]
+    MoveDlq --&gt; MarcaFailed[Marca outbox FAILED]</pre>
+<p><strong>Notas</strong>:</p>
+<ul><li>O backoff segue a sequência <code>1m / 5m / 30m / 2h / 12h</code> entre tentativas.</li><li>Ao atingir 5 tentativas sem sucesso, o evento é gravado em <code>webhook_dead_letter</code> com</li></ul>
+<p>  <code>failure_reason</code>, e a outbox é marcada como <code>FAILED</code>.</p>
+<hr>
+<h3 id="replay-de-dead-letter">Replay de Dead Letter</h3>
+<p>Este diagrama de sequência ilustra o único caminho de recuperação manual do sistema: um administrador aciona o endpoint de replay para recriar, na outbox, um evento que havia esgotado todas as tentativas automáticas. É relevante porque envolve controle de acesso (<code>role ADMIN</code>) e auditoria explícita de quem executou a ação, dois requisitos de segurança destacados na FDD.</p>
+<pre class="mermaid">sequenceDiagram
+    participant A as Admin
+    participant Api as API
+    participant Dl as webhook_dead_letter
+    participant Ob as webhook_outbox
+    participant Log as "Logs (Pino)"
+
+    A-&gt;&gt;Api: POST replay dead-letter
+    Api-&gt;&gt;Api: valida requireRole ADMIN
+    Api-&gt;&gt;Dl: busca registro por id
+    Dl--&gt;&gt;Api: dead letter encontrado
+    Api-&gt;&gt;Ob: recria evento como PENDING
+    Api-&gt;&gt;Log: audita usuário executor
+    Api--&gt;&gt;A: 202 Accepted</pre>
+<p><strong>Notas</strong>:</p>
+<ul><li>O endpoint exige <code>requireRole('ADMIN')</code>, diferente dos demais endpoints de CRUD que exigem</li></ul>
+<p>  apenas <code>authenticate</code>.</p>
+<ul><li>A execução do replay é registrada em log para fins de auditoria.</li></ul>
+<hr>
+<h3 id="modelo-de-dados">Modelo de Dados</h3>
+<p>Este diagrama de entidade-relacionamento apresenta as quatro novas tabelas introduzidas pela feature e como elas se relacionam: uma configuração de webhook gera eventos na outbox, pode acumular registros de entrega e, em caso de falhas esgotadas, ter eventos movidos para a dead letter. Este diagrama é essencial para qualquer trabalho de migração de banco ou implementação do schema Prisma, servindo como referência estrutural complementar aos fluxos de processo.</p>
+<pre class="mermaid">erDiagram
+    WEBHOOK_CONFIG ||--o{ WEBHOOK_OUTBOX : gera
+    WEBHOOK_CONFIG ||--o{ WEBHOOK_DEAD_LETTER : "referência"
+    WEBHOOK_CONFIG ||--o{ WEBHOOK_DELIVERY : "referência"
+    WEBHOOK_OUTBOX ||--o{ WEBHOOK_DELIVERY : "registra tentativas"
+    WEBHOOK_OUTBOX ||--o| WEBHOOK_DEAD_LETTER : "move após 5 falhas"
+
+    WEBHOOK_CONFIG {
+        uuid id
+        string url
+        string secret
+        string secret_previous
+        uuid customer_id
+        string events
+        boolean active
+    }
+
+    WEBHOOK_OUTBOX {
+        uuid id
+        uuid event_id
+        string event_type
+        json payload
+        string status
+        int attempts
+        datetime next_attempt_at
+    }
+
+    WEBHOOK_DEAD_LETTER {
+        uuid id
+        json payload
+        string failure_reason
+        uuid webhook_config_id
+    }
+
+    WEBHOOK_DELIVERY {
+        uuid id
+        uuid webhook_config_id
+        uuid event_id
+        boolean success
+        int status_code
+        int duration_ms
+    }</pre>
+<p><strong>Notas</strong>:</p>
+<ul><li>Todas as tabelas seguem o padrão do projeto de PK <code>id</code> em UUID.</li><li>O detalhamento completo de colunas fica a cargo da implementação; este diagrama reflete a</li></ul>
+<p>  visão geral descrita na FDD.</p>
+<ul><li><code>status</code> em <code>webhook_outbox</code> assume os valores <code>PENDING</code>, <code>PROCESSING</code>, <code>DELIVERED</code> ou <code>FAILED</code>.</li></ul>
+<hr>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+<script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'default')});</script>
+</body>
+</html>

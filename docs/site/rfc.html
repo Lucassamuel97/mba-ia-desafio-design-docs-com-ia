@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RFC · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="index.html">Início</a><a href="prd.html">PRD</a><a href="rfc.html" class="active">RFC</a><a href="fdd.html">FDD</a><a href="adrs/index.html">ADRs</a><a href="tracker.html">Tracker</a><a href="diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h1 id="rfc-sistema-de-webhooks-de-notificacao-de-pedidos">RFC — Sistema de Webhooks de Notificação de Pedidos</h1>
+<h2 id="metadados">Metadados</h2>
+<div class="table-wrap"><table><thead><tr><th>Campo</th><th>Valor</th></tr></thead><tbody><tr><td><strong>Autor</strong></td><td>Larissa (Tech Lead)</td></tr><tr><td><strong>Status</strong></td><td>Em revisão</td></tr><tr><td><strong>Data</strong></td><td>Não especificada na fonte (reunião técnica de "quinta-feira, 09:00")</td></tr><tr><td><strong>Revisores</strong></td><td>Marcos (Product Manager), Bruno (Eng. Pleno — Pedidos), Diego (Eng. Sênior — Plataforma), Sofia (Eng. de Segurança)</td></tr><tr><td><strong>Decisões relacionadas</strong></td><td><a href="adrs/adr-001.html">ADR-001</a>, <a href="adrs/adr-002.html">ADR-002</a>, <a href="adrs/adr-003.html">ADR-003</a>, <a href="adrs/adr-004.html">ADR-004</a>, <a href="adrs/adr-005.html">ADR-005</a>, <a href="adrs/adr-006.html">ADR-006</a></td></tr></tbody></table></div>
+<hr>
+<h2 id="1-resumo-executivo-tldr">1. Resumo executivo (TL;DR)</h2>
+<p>Propomos um sistema de <strong>webhooks outbound</strong> que notifica clientes B2B, em tempo quase real (&lt; 10s), sempre que o status de um pedido muda. A solução usa o <strong>padrão Outbox no MySQL já existente</strong>: o evento é gravado na mesma transação que altera o status do pedido, e um <strong>worker em processo separado</strong> faz <em>polling</em> a cada 2 segundos para entregar via HTTP POST assinado com <strong>HMAC-SHA256</strong>. Falhas são reentregues com <strong>backoff exponencial (5 tentativas)</strong> e, esgotadas, vão para uma <strong>Dead Letter Queue</strong> com replay manual. A garantia é <strong>at-least-once</strong>, com deduplicação pelo cliente via <code>X-Event-Id</code>. O módulo reaproveita integralmente os padrões do projeto (estrutura modular, <code>AppError</code>, Pino, <code>requireRole</code>), sem introduzir nova infraestrutura.</p>
+<p>Estimativa da Tech Lead: <strong>3 sprints</strong>, incluindo revisão de segurança. [09:46]</p>
+<h2 id="2-contexto-e-problema">2. Contexto e problema</h2>
+<p>Três clientes B2B (Atlas Comercial, MaxDistribuição, Nova Cargo) pediram formalmente para serem notificados quando o status de seus pedidos muda. Hoje eles fazem <em>polling</em> manual em <code>GET /orders</code>, o que deixa a integração lenta e cara; a Atlas sinalizou risco de migrar para um concorrente se a entrega não sair até o fim do trimestre. [09:00–09:02 Marcos]</p>
+<p>O OMS atual <strong>não possui</strong> nenhum mecanismo de notificação externa, eventos, filas ou webhooks. A mudança de status acontece em <code>OrderService.changeStatus</code>, dentro de uma transação Prisma que já atualiza o pedido, o histórico e o estoque. O desafio central é emitir notificações confiáveis <strong>sem</strong> acoplar a latência/disponibilidade de clientes externos a essa transação crítica. [09:04 Bruno]</p>
+<h2 id="3-proposta-tecnica-visao-geral">3. Proposta técnica (visão geral)</h2>
+<p><strong>Fluxo de emissão.</strong> Ao mudar o status, <code>changeStatus</code> insere — na mesma transação — um evento já renderizado (snapshot) na tabela <code>webhook_outbox</code>, via uma função <code>publishWebhookEvent(tx, …)</code>. Se a transação commita, o evento existe; se dá rollback, some junto. O evento só é inserido se algum webhook do cliente estiver inscrito naquele status (filtro na inserção). [ADR-001, 09:34]</p>
+<p><strong>Fluxo de entrega.</strong> Um worker dedicado (<code>src/worker.ts</code>, <code>npm run worker</code>), em processo separado da API e com <code>PrismaClient</code> próprio, faz <em>polling</em> a cada 2s pelos eventos pendentes mais antigos, monta o payload, assina com HMAC-SHA256 e envia via HTTP POST (timeout 10s). [ADR-002]</p>
+<p><strong>Resiliência.</strong> Falha de entrega dispara retry com backoff <strong>1m/5m/30m/2h/12h</strong> (5 tentativas). Esgotadas, o evento vai para <code>webhook_dead_letter</code>, reprocessável por um endpoint admin (<code>POST /admin/webhooks/dead-letter/:id/replay</code>, role <code>ADMIN</code>). [ADR-003]</p>
+<p><strong>Segurança.</strong> Assinatura HMAC-SHA256 no header <code>X-Signature</code>, com <strong>secret única por endpoint</strong> e rotação com <em>grace period</em> de 24h. TLS obrigatório (URL https) e limite de payload de 64KB são validações de schema. [ADR-004]</p>
+<p><strong>Entrega.</strong> Garantia <strong>at-least-once</strong>; cada evento carrega <code>X-Event-Id</code> (UUID) para o cliente deduplicar. [ADR-005]</p>
+<p><strong>Superfície de API (CRUD).</strong> Endpoints autenticados para cadastrar, editar, remover e listar webhooks de um customer, além de consultar o histórico de entregas. O <code>customer_id</code> vem do corpo/rota, <strong>não</strong> do JWT. [09:31–09:33]</p>
+<p><strong>Reuso.</strong> O módulo <code>src/modules/webhooks</code> segue o padrão dos demais módulos e reaproveita <code>AppError</code> (códigos <code>WEBHOOK_*</code>), o error middleware, o logger Pino e <code>requireRole</code>. [ADR-006]</p>
+<blockquote><p>O detalhamento de contratos, payloads, matriz de erros e integração linha a linha com o código fica no <strong><a href="fdd.html">FDD</a></strong>; este RFC descreve <em>o que</em> propomos e <em>por quê</em>.</p></blockquote>
+<h2 id="4-alternativas-consideradas">4. Alternativas consideradas</h2>
+<div class="table-wrap"><table><thead><tr><th>Alternativa</th><th>Trade-off que levou ao descarte</th></tr></thead><tbody><tr><td>**Disparo síncrono no <code>order.service</code>**</td><td>Simples, mas acopla a latência e a disponibilidade do cliente externo ao lock da transação de <code>changeStatus</code>, e não permite rollback seguro se o cliente está offline. [09:04, 09:06]</td></tr><tr><td><strong>Redis Streams / fila externa</strong></td><td>Desacoplaria bem, mas exige subir e operar nova infraestrutura (Redis Cluster) — overengineering para um time pequeno, quando o MySQL existente resolve. [09:07 Diego]</td></tr><tr><td><strong>Trigger de banco para reatividade</strong></td><td>MySQL não tem NOTIFY/LISTEN; um trigger só executa SQL e não notifica processo externo. Improvisar (arquivo/endpoint) é frágil; polling de 2s já atende o SLA. [09:09 Diego]</td></tr><tr><td><strong>Exactly-once na entrega</strong></td><td>Eliminaria duplicatas, mas exige coordenação dos dois lados, muito mais complexa. At-least-once + <code>X-Event-Id</code> resolve 99% dos casos. [09:25 Diego]</td></tr><tr><td><strong>3 tentativas de retry</strong></td><td>Mais agressivo, mas mataria eventos de clientes com indisponibilidade de horas (ex.: manutenção planejada de 2h). 5 tentativas cobrem ~12–24h. [09:16]</td></tr></tbody></table></div>
+<h2 id="5-questoes-em-aberto">5. Questões em aberto</h2>
+<ol><li><strong>Rate limiting de saída.</strong> Se um cliente tem 50 pedidos mudando de status em um minuto,</li></ol>
+<p>   podemos bombardeá-lo com 50 chamadas. A equipe decidiu <em>observar e decidir depois</em>, não entra    nesta fase. [09:38–09:39 Diego/Larissa]</p>
+<ol><li><strong>Estratégia de escala do worker.</strong> Com single-worker, a ordenação é garantida só por</li></ol>
+<p>   <code>order_id</code>. Escalar para múltiplos workers (particionar por <code>order_id</code> ou lock pessimista)    fica como problema futuro. [09:12–09:13 Diego]</p>
+<ol><li><strong>Critério de falha HTTP e retenção da DLQ.</strong> Quais códigos de resposta contam como falha vs.</li></ol>
+<p>   sucesso, e qual a política de expurgo de <code>webhook_dead_letter</code>, não foram decididos. [ADR-003]</p>
+<ol><li><strong>Storage da secret em repouso e rate limit de rotação.</strong> Formato de armazenamento (texto</li></ol>
+<p>   plano vs. hash/cripto) e limite de frequência de rotação ficaram em aberto. [ADR-004]</p>
+<h2 id="6-impacto-e-riscos">6. Impacto e riscos</h2>
+<p><strong>Impacto no código existente.</strong> A única alteração intrusiva é dentro de <code>changeStatus</code> (<code>src/modules/orders/order.service.ts</code>), que passa a chamar <code>publishWebhookEvent(tx, …)</code> dentro da transação. O restante é aditivo: novo módulo, novas tabelas, novo entry-point de worker.</p>
+<div class="table-wrap"><table><thead><tr><th>Risco</th><th>Prob.</th><th>Impacto</th><th>Mitigação</th></tr></thead><tbody><tr><td>Inserção da outbox falhar e derrubar a transação de status</td><td>Baixa</td><td>Alto</td><td>Insert simples e indexado; a atomicidade é justamente o objetivo — sem outbox, sem mudança de status. [09:40]</td></tr><tr><td><code>requireRole</code>/replay admin sem cobertura de teste hoje</td><td>Média</td><td>Médio</td><td>Adicionar testes do endpoint admin antes do deploy; revisão de segurança dedicada (2 dias úteis). [09:36, 09:46]</td></tr><tr><td>Cliente lento (&gt;10s) tratado como falha e reentrando no retry</td><td>Média</td><td>Baixo</td><td>Timeout de 10s documentado; 5 tentativas absorvem picos de lentidão. [09:42]</td></tr><tr><td>Crescimento indefinido de <code>webhook_outbox</code></td><td>Média</td><td>Médio</td><td>Arquivamento de entregues (~30 dias) — identificado, fora do escopo desta fase. [09:08]</td></tr><tr><td>Colisão de códigos <code>WEBHOOK_*</code> (sem registro central)</td><td>Baixa</td><td>Baixo</td><td>Convenção de prefixo e revisão de code review. [ADR-006]</td></tr></tbody></table></div>
+<h2 id="7-decisoes-relacionadas">7. Decisões relacionadas</h2>
+<ul><li><a href="adrs/adr-001.html">ADR-001 — Padrão Outbox no MySQL</a></li><li><a href="adrs/adr-002.html">ADR-002 — Worker em processo separado com polling de 2s</a></li><li><a href="adrs/adr-003.html">ADR-003 — Retry com backoff exponencial e DLQ</a></li><li><a href="adrs/adr-004.html">ADR-004 — HMAC-SHA256 com secret por endpoint</a></li><li><a href="adrs/adr-005.html">ADR-005 — Entrega at-least-once com X-Event-Id</a></li><li><a href="adrs/adr-006.html">ADR-006 — Reuso dos padrões existentes do projeto</a></li></ul>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

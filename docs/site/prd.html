@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRD · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="index.html">Início</a><a href="prd.html" class="active">PRD</a><a href="rfc.html">RFC</a><a href="fdd.html">FDD</a><a href="adrs/index.html">ADRs</a><a href="tracker.html">Tracker</a><a href="diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h3 id="prd-oms-sistema-de-webhooks-de-notificacao-de-pedidos">PRD: OMS Sistema de Webhooks de Notificação de Pedidos</h3>
+<p>Versão: 1.0 Data: Não especificada na fonte (reunião técnica de "quinta-feira, 09:00") Responsável: Marcos (Product Manager)</p>
+<hr>
+<h3 id="resumo">Resumo</h3>
+<p>Feature que notifica clientes B2B, em tempo quase real (abaixo de 10 segundos), sempre que o status de um pedido muda no OMS. Hoje os clientes descobrem mudanças fazendo polling manual em <code>GET /orders</code>, o que é lento e caro para eles. A solução envia webhooks outbound assinados (HMAC-SHA256) usando o padrão Outbox no MySQL já existente, com um worker separado, retry com backoff e Dead Letter Queue. A feature é aditiva ao OMS atual e reaproveita seus padrões (módulos, <code>AppError</code>, logger Pino, <code>requireRole</code>).</p>
+<hr>
+<h3 id="contexto-e-problema">Contexto e problema</h3>
+<p>Público-alvo</p>
+<ul><li>Clientes B2B integradores (Atlas Comercial, MaxDistribuição, Nova Cargo)</li><li>Time de engenharia de Pedidos e Plataforma que opera o OMS</li><li>Administradores de operação (reprocessamento de falhas)</li></ul>
+<p>Cenários de uso chave</p>
+<ul><li>Cliente cadastra um webhook e passa a receber automaticamente as mudanças de status dos pedidos dele</li><li>Cliente filtra quais status quer ouvir (por exemplo apenas SHIPPED e DELIVERED)</li><li>Cliente consulta o histórico de entregas para auditar sucesso ou falha</li><li>Administrador reprocessa manualmente um evento que caiu na Dead Letter Queue</li></ul>
+<p>Onde essa feature será implantada</p>
+<ul><li>Sistema existente. É o OMS em produção, aplicação Node.js e TypeScript com Express e Prisma sobre MySQL. A feature entra como um novo módulo em <code>src/modules/webhooks</code> mais um novo processo worker (<code>src/worker.ts</code>), sem introduzir nova infraestrutura.</li></ul>
+<p>Problemas priorizados</p>
+<ul><li>Clientes precisam fazer polling manual repetido em <code>GET /orders</code> para saber se algo mudou, o que deixa a integração lenta e cara. Impacto alto, pois a Atlas sinalizou risco de migrar para um concorrente se a entrega não sair até o fim do trimestre. Prioridade alta. [09:00-09:02 Marcos]</li><li>Não existe nenhum mecanismo de notificação externa, evento, fila ou webhook no OMS hoje. Impacto alto, pois sem isso não há como atender o pedido formal dos clientes. Prioridade alta. [09:03-09:06]</li><li>Disparar a notificação de forma síncrona dentro da mudança de status acoplaria a latência do cliente externo à transação crítica de pedidos. Impacto médio, pois travaria mudança de status para outros pedidos. Prioridade média. [09:04 Bruno]</li></ul>
+<hr>
+<h3 id="objetivos-e-metricas">Objetivos e métricas</h3>
+<div class="table-wrap"><table><thead><tr><th>Objetivo</th><th>Métrica</th><th>Meta</th></tr></thead><tbody><tr><td>Notificar o cliente em tempo quase real</td><td>Tempo entre a mudança de status e a entrega do webhook</td><td>Abaixo de 10 segundos, com pior caso aproximado de 2 segundos [09:02, 09:10]</td></tr><tr><td>Eliminar o polling manual dos clientes</td><td>Necessidade de o cliente consultar <code>GET /orders</code> para detectar mudança</td><td>Zero, a mudança é empurrada por webhook [09:00-09:02]</td></tr><tr><td>Tolerar indisponibilidade temporária do cliente sem perder eventos</td><td>Janela de tempo coberta pelas tentativas de reentrega</td><td>Até aproximadamente 12 a 24 horas, com 5 tentativas [09:16-09:17]</td></tr><tr><td>Entregar a feature no prazo comercial</td><td>Sprints de desenvolvimento incluindo revisão de segurança</td><td>3 sprints [09:46]</td></tr></tbody></table></div>
+<hr>
+<h3 id="escopo">Escopo</h3>
+<p>Incluso</p>
+<ul><li>CRUD de configuração de webhook (cadastrar, editar, remover, listar)</li><li>Filtro de eventos por status, aplicado na inserção na outbox</li><li>Tabela outbox no MySQL preenchida na mesma transação da mudança de status</li><li>Worker separado em polling de 2 segundos para entrega</li><li>Assinatura HMAC-SHA256 com secret única por endpoint e rotação com grace period de 24 horas</li><li>Retry com backoff exponencial e Dead Letter Queue em tabela separada</li><li>Endpoint admin para replay manual da Dead Letter Queue</li><li>Garantia at-least-once com header <code>X-Event-Id</code> para deduplicação no cliente</li><li>Histórico de entregas consultável pelo cliente</li></ul>
+<p>Fora de escopo</p>
+<ul><li>E-mail de aviso ao cliente quando o webhook dele falha, adiado para fase futura [09:37]</li><li>Dashboard ou painel visual, é projeto separado do time de frontend [09:40]</li><li>Rate limiting de saída, fica como observar e decidir depois [09:39]</li><li>Garantia de ordenação global entre pedidos diferentes, apenas por <code>order_id</code> [09:13]</li><li>Arquivamento das linhas entregues da outbox, aproximadamente 30 dias [09:08]</li><li>Endurecimento de papéis do CRUD de configuração, adiado [09:37]</li></ul>
+<hr>
+<h3 id="requisitos-funcionais">Requisitos funcionais</h3>
+<h4 id="fr-001-cadastrar-webhook">FR-001 Cadastrar webhook</h4>
+<p>O cliente cadastra um endpoint de webhook informando url, lista de status desejados e customer_id.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li>Cliente autenticado envia <code>POST /webhooks</code> com url https, lista de eventos e customer_id no corpo</li><li>Sistema valida os dados, gera uma secret única e persiste a configuração</li><li>Sistema devolve a configuração criada incluindo a secret, retornada apenas na criação</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>customer_id vem do corpo ou da rota, nunca do JWT do operador [09:32-09:33]</li><li>Se já existir configuração idêntica para o customer, o cadastro é rejeitado</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li><code>WEBHOOK_INVALID_URL</code> quando a url não é https [09:23]</li><li><code>WEBHOOK_INVALID_EVENT</code> quando um status informado não existe na máquina de estados</li><li><code>WEBHOOK_ALREADY_EXISTS</code> quando já há webhook igual para o customer</li></ul>
+<p><strong>Prioridade:</strong> alta</p>
+<hr>
+<h4 id="fr-002-editar-webhook">FR-002 Editar webhook</h4>
+<p>O cliente altera url, lista de eventos ou estado ativo de um webhook existente.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li>Cliente autenticado envia <code>PATCH /webhooks/:id</code> com os campos a alterar</li><li>Sistema valida e persiste a alteração</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>Alteração parcial, apenas os campos enviados são modificados</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li><code>WEBHOOK_NOT_FOUND</code> quando o webhook não existe</li></ul>
+<p><strong>Prioridade:</strong> media</p>
+<hr>
+<h4 id="fr-003-remover-webhook">FR-003 Remover webhook</h4>
+<p>O cliente remove um webhook que não quer mais.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li>Cliente autenticado envia <code>DELETE /webhooks/:id</code></li><li>Sistema remove a configuração</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>Webhook removido para de receber novos eventos, entregas em andamento seguem seu ciclo</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li><code>WEBHOOK_NOT_FOUND</code> quando o webhook não existe</li></ul>
+<p><strong>Prioridade:</strong> media</p>
+<hr>
+<h4 id="fr-004-listar-webhooks-do-customer">FR-004 Listar webhooks do customer</h4>
+<p>O cliente consulta os webhooks cadastrados de um customer.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li>Cliente autenticado envia <code>GET /webhooks?customerId=...</code></li><li>Sistema devolve a lista de webhooks do customer, sem a secret</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>A secret nunca é retornada em operações de leitura</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li>Requisição sem autenticação é rejeitada</li></ul>
+<p><strong>Prioridade:</strong> media</p>
+<hr>
+<h4 id="fr-005-emitir-evento-na-outbox-dentro-da-transacao">FR-005 Emitir evento na outbox dentro da transação</h4>
+<p>Quando o status de um pedido muda, o sistema registra o evento na outbox de forma atômica.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li><code>changeStatus</code> valida a transição e persiste a mudança de status</li><li>Na mesma transação, <code>publishWebhookEvent(tx, order, from, to)</code> insere o evento na outbox com payload renderizado e event_id novo</li><li>Se a transação commita, o evento existe. Se sofre rollback, o evento some junto [09:06, 09:40]</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>Se nenhum webhook ativo do customer ouve aquele status, nada é inserido [09:34]</li><li>As pontas da transição vêm dos parâmetros from e to, nunca de reler o status do pedido em memória</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li>Falha ao inserir na outbox provoca rollback da mudança de status</li></ul>
+<p><strong>Prioridade:</strong> alta</p>
+<hr>
+<h4 id="fr-006-entregar-o-webhook-pelo-worker-com-assinatura">FR-006 Entregar o webhook pelo worker com assinatura</h4>
+<p>Um worker separado entrega os eventos pendentes com assinatura HMAC.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li>Worker em processo separado faz polling a cada 2 segundos pelos eventos pendentes mais antigos</li><li>Monta os headers, assina o corpo com HMAC-SHA256 e envia via HTTP POST com timeout de 10 segundos</li><li>Resposta 2xx marca o evento como entregue e registra na tabela de entregas</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>Resposta diferente de 2xx ou timeout aciona o fluxo de retry</li><li>Ordenação garantida por <code>order_id</code> enquanto houver worker único [09:13]</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li>Timeout de 10 segundos é tratado como falha [09:42]</li></ul>
+<p><strong>Prioridade:</strong> alta</p>
+<hr>
+<h4 id="fr-007-reentregar-com-backoff-e-mover-para-a-dlq">FR-007 Reentregar com backoff e mover para a DLQ</h4>
+<p>Falhas de entrega são reentregues com backoff e, esgotadas, vão para a Dead Letter Queue.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li>Cada falha incrementa a tentativa e agenda a próxima pelo backoff 1m, 5m, 30m, 2h e 12h</li><li>Após 5 tentativas sem sucesso, o evento é movido para a tabela de Dead Letter Queue com o motivo da falha [09:15-09:18]</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>Cliente que volta a responder dentro da janela recebe o evento normalmente</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li>Evento que esgota as tentativas fica registrado como falha permanente na DLQ</li></ul>
+<p><strong>Prioridade:</strong> alta</p>
+<hr>
+<h4 id="fr-008-reprocessar-a-dlq-pelo-admin">FR-008 Reprocessar a DLQ pelo admin</h4>
+<p>Um administrador reprocessa manualmente um evento da Dead Letter Queue.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li>Administrador envia <code>POST /admin/webhooks/dead-letter/:id/replay</code></li><li>Sistema recoloca o evento como pendente na outbox e registra quem executou</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>Apenas usuários com papel ADMIN podem executar, reaproveitando <code>requireRole</code> [09:36]</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li><code>WEBHOOK_FORBIDDEN</code> quando o usuário não é ADMIN</li><li><code>WEBHOOK_DEAD_LETTER_NOT_FOUND</code> quando o item não existe</li></ul>
+<p><strong>Prioridade:</strong> media</p>
+<hr>
+<h4 id="fr-009-rotacionar-a-secret-com-grace-period">FR-009 Rotacionar a secret com grace period</h4>
+<p>O cliente troca a secret usada na assinatura sem interromper a integração.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li>Cliente pede a rotação e o sistema gera uma nova secret</li><li>A secret anterior continua válida por 24 horas em paralelo, depois deixa de funcionar [09:21-09:22]</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>Durante o grace period, assinaturas com a secret antiga ou a nova são aceitas</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li><code>WEBHOOK_NOT_FOUND</code> quando o webhook não existe</li></ul>
+<p><strong>Prioridade:</strong> media</p>
+<hr>
+<h4 id="fr-010-consultar-historico-de-entregas">FR-010 Consultar histórico de entregas</h4>
+<p>O cliente audita as últimas entregas de um webhook.</p>
+<p><strong>Fluxo principal</strong></p>
+<ul><li>Cliente envia <code>GET /webhooks/:id/deliveries</code></li><li>Sistema devolve as últimas entregas com sucesso ou falha, status code, tempo de resposta e tentativa [09:34]</li></ul>
+<p><strong>Fluxos alternativos e exceções</strong></p>
+<ul><li>Lista limitada às entregas mais recentes, aproximadamente as últimas 100</li></ul>
+<p><strong>Erros previstos</strong></p>
+<ul><li><code>WEBHOOK_NOT_FOUND</code> quando o webhook não existe</li></ul>
+<p><strong>Prioridade:</strong> media</p>
+<hr>
+<h3 id="requisitos-nao-funcionais">Requisitos não funcionais</h3>
+<p>Performance</p>
+<ul><li>Latência entre a mudança de status e a entrega do webhook abaixo de 10 segundos, com pior caso aproximado de 2 segundos dado o polling de 2 segundos [09:02, 09:10]</li><li>Timeout de 10 segundos por tentativa de entrega [09:42]</li></ul>
+<p>Disponibilidade</p>
+<ul><li>Hipótese: 99.9 por cento de uptime mensal do processamento de webhooks, alinhado ao padrão de sistemas voltados ao cliente externo. Não foi definido número na reunião</li></ul>
+<p>Segurança e autorização</p>
+<ul><li>Assinatura HMAC-SHA256 do corpo, com secret única por endpoint e rotação com grace period de 24 horas [09:20-09:22]</li><li>TLS obrigatório, url do webhook precisa ser https [09:23]</li><li>Replay da DLQ exige papel ADMIN e registra quem executou, para auditoria [09:36]</li></ul>
+<p>Observabilidade</p>
+<ul><li>Logs estruturados com o logger Pino existente, registrando event_id, webhook_id, status code, tentativa e tempo de resposta [09:29]</li><li>Métricas de eventos por status da outbox, taxa de sucesso de entrega, latência de entrega e profundidade da DLQ</li><li>Tracing do ciclo de vida do evento, correlacionado pelo event_id, do insert na outbox até a entrega</li></ul>
+<p>Confiabilidade e integridade de dados</p>
+<ul><li>Inserção do evento na outbox é transacional com a mudança de status, sem evento órfão [09:40]</li><li>Garantia at-least-once, com deduplicação pelo cliente via <code>X-Event-Id</code> [09:24-09:26]</li><li>Limite de tamanho de payload de 64KB, com erro caso ultrapasse [09:24]</li></ul>
+<p>Compatibilidade e portabilidade</p>
+<ul><li>API REST JSON versionada em <code>/api/v1</code>, seguindo o padrão do OMS</li><li>Sem novas dependências de infraestrutura, usa o MySQL existente [09:07]</li></ul>
+<p>Compliance</p>
+<ul><li>Trilha de auditoria do replay da DLQ disponível, com identificação de quem executou [09:36]</li></ul>
+<p>Acessibilidade no frontend consumidor</p>
+<ul><li>Não se aplica nesta fase, a entrega é puramente por API. Dashboard ou painel visual está fora de escopo [09:40]</li></ul>
+<hr>
+<h3 id="arquitetura-e-abordagem">Arquitetura e abordagem</h3>
+<p>Abordagem</p>
+<ul><li>Sistema existente estendido com um novo módulo <code>src/modules/webhooks</code> e um processo worker separado. Comunicação assíncrona via padrão Outbox no MySQL, sem fila ou mensageria externa [09:06-09:07]</li></ul>
+<p>Componentes</p>
+<ul><li>API do OMS em Node.js e TypeScript com Express, recebe o CRUD de configuração e o endpoint admin de replay</li><li>Worker de webhooks em processo separado (<code>src/worker.ts</code>), com PrismaClient próprio, faz polling e entrega</li><li>MySQL como fonte de verdade, com as tabelas de configuração, outbox, dead letter e entregas</li><li>Sistema do cliente B2B como destino externo dos webhooks</li></ul>
+<p>Integrações</p>
+<ul><li><code>changeStatus</code> do módulo de pedidos chama <code>publishWebhookEvent(tx, ...)</code> na transação, único ponto de contato intrusivo com o código atual [09:41]</li><li>Entrega HTTP POST outbound assinada para a url configurada pelo cliente</li></ul>
+<h3 id="decisoes-e-trade-offs">Decisões e trade-offs</h3>
+<h4 id="decisao-padrao-outbox-no-mysql-em-vez-de-disparo-sincrono-ou-fila-externa">Decisão: Padrão Outbox no MySQL em vez de disparo síncrono ou fila externa</h4>
+<ul><li><strong>Justificativa:</strong> garante atomicidade entre a mudança de status e o registro do evento, sem subir infraestrutura nova, adequado a um time pequeno [09:06-09:07]</li><li><strong>Trade-off:</strong> exige um worker de polling e introduz latência mínima de alguns segundos. Ver <a href="adrs/adr-001.html">ADR-001</a></li></ul>
+<h4 id="decisao-worker-em-processo-separado-com-polling-de-2-segundos">Decisão: Worker em processo separado com polling de 2 segundos</h4>
+<ul><li><strong>Justificativa:</strong> isola o ciclo de vida do worker da API e atende o requisito de menos de 10 segundos, já que o MySQL não tem notificação nativa [09:09-09:11]</li><li><strong>Trade-off:</strong> ordenação garantida apenas por <code>order_id</code> enquanto houver worker único. Ver <a href="adrs/adr-002.html">ADR-002</a></li></ul>
+<h4 id="decisao-retry-com-backoff-exponencial-de-5-tentativas-e-dlq-separada">Decisão: Retry com backoff exponencial de 5 tentativas e DLQ separada</h4>
+<ul><li><strong>Justificativa:</strong> cobre janelas de indisponibilidade de horas sem deixar eventos pendurados para sempre, e mantém a outbox principal limpa [09:15-09:18]</li><li><strong>Trade-off:</strong> um cliente fora do ar por mais de aproximadamente 15 horas perde a entrega automática. Ver <a href="adrs/adr-003.html">ADR-003</a></li></ul>
+<h4 id="decisao-entrega-at-least-once-com-x-event-id-em-vez-de-exactly-once">Decisão: Entrega at-least-once com X-Event-Id em vez de exactly-once</h4>
+<ul><li><strong>Justificativa:</strong> exactly-once exigiria coordenação dos dois lados, muito mais complexa. At-least-once com identificador resolve a maioria dos casos [09:25]</li><li><strong>Trade-off:</strong> transfere a deduplicação para o cliente, que precisa tratar eventos repetidos. Ver <a href="adrs/adr-005.html">ADR-005</a></li></ul>
+<hr>
+<h3 id="dependencias">Dependências</h3>
+<h4 id="technical-extensao-do-metodo-changestatus">technical: Extensão do método changeStatus</h4>
+<p><code>OrderService.changeStatus</code> precisa passar a chamar <code>publishWebhookEvent(tx, order, from, to)</code> dentro da transação existente. É o único ponto de código atual que precisa ser alterado [09:40-09:41]</p>
+<h4 id="technical-novo-processo-worker-e-script-de-execucao">technical: Novo processo worker e script de execução</h4>
+<p>É preciso criar o entry-point <code>src/worker.ts</code> e um script <code>npm run worker</code>, com PrismaClient próprio apontando para a mesma DATABASE_URL [09:11, 09:30]</p>
+<h4 id="organizational-revisao-de-seguranca-antes-do-deploy">organizational: Revisão de segurança antes do deploy</h4>
+<p>Sofia precisa reservar pelo menos dois dias úteis para revisar o código de segurança, em especial HMAC e geração de secret, antes de subir [09:46]</p>
+<h4 id="organizational-documentacao-para-os-clientes-no-portal-do-desenvolvedor">organizational: Documentação para os clientes no portal do desenvolvedor</h4>
+<p>O produto precisa documentar de forma destacada a deduplicação pelo X-Event-Id e como integrar via API [09:26, 09:40]</p>
+<hr>
+<h3 id="riscos-e-mitigacao">Riscos e mitigação</h3>
+<h4 id="cliente-lento-ou-indisponivel-faz-eventos-falharem-e-acumularem">Cliente lento ou indisponível faz eventos falharem e acumularem</h4>
+<ul><li><strong>Probabilidade:</strong> alta</li><li><strong>Impacto:</strong> eventos não entregues e crescimento da fila de reentrega</li><li><strong>Mitigação:</strong><ul><li>Retry com backoff exponencial de 5 tentativas cobrindo aproximadamente 12 a 24 horas</li><li>Dead Letter Queue em tabela separada para não poluir a outbox</li><li>Timeout de 10 segundos por tentativa para não segurar o worker</li></ul></li><li><strong>Plano de contingência:</strong> replay manual pelo endpoint admin após o cliente se restabelecer [09:18]</li></ul>
+<h4 id="endpoint-admin-de-replay-e-o-requirerole-nao-tem-cobertura-de-testes-hoje">Endpoint admin de replay e o requireRole não têm cobertura de testes hoje</h4>
+<ul><li><strong>Probabilidade:</strong> media</li><li><strong>Impacto:</strong> falha de autorização poderia expor uma operação sensível de reprocessamento</li><li><strong>Mitigação:</strong><ul><li>Adicionar testes do endpoint admin cobrindo ADMIN, papel sem permissão e não autenticado</li><li>Revisão de segurança dedicada antes do deploy</li></ul></li><li><strong>Plano de contingência:</strong> desabilitar temporariamente o endpoint de replay até a cobertura estar pronta</li></ul>
+<h4 id="chamada-de-publishwebhookevent-pode-derrubar-a-transacao-de-mudanca-de-status">Chamada de publishWebhookEvent pode derrubar a transação de mudança de status</h4>
+<ul><li><strong>Probabilidade:</strong> baixa</li><li><strong>Impacto:</strong> falha ao inserir na outbox aborta a mudança de status do pedido</li><li><strong>Mitigação:</strong><ul><li>Manter a função enxuta, apenas um insert indexado</li></ul></li><li><strong>Plano de contingência:</strong> monitorar erros da transação e tratar a atomicidade como comportamento esperado, já que sem evento não deve haver mudança de status [09:40]</li></ul>
+<h4 id="crescimento-indefinido-da-tabela-outbox">Crescimento indefinido da tabela outbox</h4>
+<ul><li><strong>Probabilidade:</strong> media</li><li><strong>Impacto:</strong> degradação de performance de leitura da outbox ao longo do tempo</li><li><strong>Mitigação:</strong><ul><li>Índices em status e created_at para o worker ler apenas pendentes em lote pequeno</li><li>Monitorar a profundidade da tabela</li></ul></li><li><strong>Plano de contingência:</strong> implementar o arquivamento de entregues, aproximadamente 30 dias, em fase seguinte [09:08]</li></ul>
+<hr>
+<h3 id="criterios-de-aceitacao">Critérios de aceitação</h3>
+<p>Checklist objetivo que define se a feature está pronta.</p>
+<ul><li>Toda mudança de status insere exatamente um evento na outbox por webhook inscrito, na mesma transação, e um rollback não deixa evento órfão</li><li>Nenhum evento é inserido quando nenhum webhook do customer ouve aquele status</li><li>O worker entrega em menos de 10 segundos no caso comum e aplica timeout de 10 segundos por tentativa</li><li>Falhas seguem o backoff 1m, 5m, 30m, 2h e 12h e, após 5 tentativas, o evento está na Dead Letter Queue</li><li>Toda entrega leva os headers X-Event-Id, X-Signature, X-Timestamp e X-Webhook-Id, com assinatura HMAC-SHA256 válida</li><li>O replay da Dead Letter Queue exige papel ADMIN e registra quem executou</li><li>Uma url http é recusada com WEBHOOK_INVALID_URL e um payload acima de 64KB é recusado</li><li>A rotação de secret mantém a secret anterior válida por 24 horas</li></ul>
+<hr>
+<h3 id="testes-e-validacao">Testes e validação</h3>
+<p>Tipos de teste obrigatórios</p>
+<ul><li>Testes unitários para as regras críticas, como o cálculo do backoff, a geração e verificação do HMAC e o filtro de eventos por status</li><li>Testes de integração para o fluxo principal, da mudança de status até a entrega, incluindo o comportamento transacional da outbox</li><li>Testes de integração para retry, movimentação para a Dead Letter Queue e replay</li><li>Testes de segurança para a autorização do endpoint admin, cobrindo ADMIN, papel sem permissão e não autenticado</li></ul>
+<p>Estratégia de validação</p>
+<ul><li>TDD para a lógica crítica de outbox, retry e assinatura, QA manual guiado por roteiro para os fluxos de CRUD e replay, e revisão de segurança dedicada da Sofia antes do deploy [09:46]</li></ul>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

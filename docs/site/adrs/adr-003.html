@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-003 · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="../index.html">Início</a><a href="../prd.html">PRD</a><a href="../rfc.html">RFC</a><a href="../fdd.html">FDD</a><a href="index.html">ADRs</a><a href="../tracker.html">Tracker</a><a href="../diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h1 id="adr-003-retry-com-backoff-exponencial-e-dead-letter-queue-em-tabela-separada">ADR-003: Retry com Backoff Exponencial e Dead Letter Queue em Tabela Separada</h1>
+<p><strong>Status:</strong> Aceita <strong>Data:</strong> Não especificada na fonte (reunião registrada apenas como "quinta-feira", sem data de calendário) <strong>Related ADRs:</strong> <a href="adr-001.html">ADR-001</a> (outbox de onde os eventos são lidos), <a href="adr-005.html">ADR-005</a> (retry origina as duplicatas deduplicadas por event_id), <a href="adr-006.html">ADR-006</a> (replay de DLQ reusa <code>requireRole('ADMIN')</code>)</p>
+<h2 id="contexto-e-problema">Contexto e Problema</h2>
+<p>Clientes B2B (Atlas Comercial, MaxDistribuição, Nova Cargo) passam a receber notificações de mudança de status de pedido via webhook outbound, disparado por um worker separado que lê eventos pendentes de uma tabela de outbox por polling. Como esses clientes podem ficar temporariamente indisponíveis — desde uma indisponibilidade matinal até uma manutenção planejada de até 2 horas, já observada em produção — foi preciso definir uma política de reentrega para as chamadas HTTP desse worker e um destino para os eventos que esgotam as tentativas de envio. [09:15-09:16 Diego/Bruno]</p>
+<p>A equipe descartou dois extremos logo no início da discussão: um número de tentativas muito baixo "mata" clientes com indisponibilidade de algumas horas, enquanto retry indefinido deixa eventos pendurados para sempre caso o cliente tenha saído de operação definitivamente. Também foi discutido se a falha permanente deveria simplesmente ser marcada na própria tabela de outbox ou se merecia um destino próprio. [09:15-09:18 Diego/Bruno]</p>
+<p>Esses clientes fizeram um pedido formal de notificação em tempo real (abaixo de 10 segundos) e um deles sinalizou risco de migrar para um concorrente caso a entrega não seja confiável, o que reforça a importância de uma política de reentrega que cubra janelas de indisponibilidade sem perder eventos. [09:00-09:02 Marcos]</p>
+<h2 id="fatores-da-decisao">Fatores da Decisão</h2>
+<ul><li>Clientes têm janelas de indisponibilidade que variam de minutos a algumas horas (manutenção planejada já observada com 2h de duração). [09:16 Diego]</li><li>Um evento não pode ficar pendurado indefinidamente caso o cliente tenha saído de operação. [09:15-09:16 Diego]</li><li>É necessário manter evidência auditável (payload, motivo da falha, timestamp) para depuração e reprocessamento de falhas permanentes. [09:18 Diego]</li><li>A fila principal de entrega (outbox) deve permanecer limpa, sem registros de falhas definitivas misturados aos eventos pendentes. [09:18 Diego]</li><li>Reprocessamento de falhas permanentes deve ser uma ação controlada e não automática. [09:18 Diego/Bruno]</li><li>A entrega é garantida como at-least-once, com deduplicação do lado do cliente pelo identificador único do evento; portanto uma tentativa reenviada por retry não compromete a consistência do cliente. [09:24-09:26 Diego]</li></ul>
+<h2 id="opcoes-consideradas">Opções Consideradas</h2>
+<ol><li><strong>Backoff exponencial com 5 tentativas (1m / 5m / 30m / 2h / 12h) e Dead Letter Queue em tabela separada</strong> (escolhida)</li><li><strong>Número de tentativas nos extremos: 3 tentativas fixas (mais agressivo) ou retry indefinido (sem limite)</strong></li><li><strong>Marcar falha permanente como "failed" na própria tabela de outbox, sem tabela de DLQ separada</strong></li></ol>
+<h2 id="decisao">Decisão</h2>
+<p>Escolhida a opção 1: <strong>backoff exponencial com 5 tentativas</strong>, na progressão <strong>1m / 5m / 30m / 2h / 12h</strong> (quase 15h entre a primeira falha e a última tentativa). Esgotadas as 5 tentativas, o evento é movido para uma <strong>Dead Letter Queue em tabela separada</strong> (<code>webhook_dead_letter</code>), armazenando payload, motivo da falha e timestamp. O reprocessamento é manual, via endpoint administrativo <code>POST /admin/webhooks/dead-letter/:id/replay</code>, que recoloca o evento como pendente na outbox. [09:15-09:18]</p>
+<p>Cinco tentativas com essa progressão foram consideradas suficientes para cobrir janelas de indisponibilidade de até 12-24h sem intervenção manual, sem deixar o evento pendurado indefinidamente. A progressão foi validada em conjunto pela equipe como um equilíbrio aceitável: nem tão curta a ponto de descartar clientes com manutenções planejadas de horas, nem tão longa a ponto de gerar acúmulo indefinido de eventos não entregues. [09:16-09:17 Diego/Marcos/Bruno]</p>
+<h2 id="pros-e-contras-das-opcoes">Prós e Contras das Opções</h2>
+<h3 id="backoff-exponencial-com-5-tentativas-e-dlq-em-tabela-separada-escolhida">Backoff exponencial com 5 tentativas e DLQ em tabela separada (escolhida)</h3>
+<ul><li>Prós: cobre janelas de indisponibilidade de até ~12-24h sem intervenção manual. [09:16]</li><li>Prós: tabela de DLQ separada mantém a outbox principal limpa e serve como evidência para debug e reprocessamento. [09:18]</li><li>Contras: reprocessamento é manual e restrito a papel ADMIN. [09:18, ver seção de Consequências]</li><li>Contras: timeout de 10s por tentativa faz com que um cliente lento seja tratado como falha e entre no ciclo de retry. [09:42]</li></ul>
+<h3 id="numero-fixo-de-tentativas-nos-extremos-3-tentativas-ou-retry-indefinido">Número fixo de tentativas nos extremos (3 tentativas ou retry indefinido)</h3>
+<ul><li>Prós (3 tentativas): ciclo de retry mais curto, libera recursos mais rápido. [09:16]</li><li>Prós (indefinido): nenhum evento é descartado enquanto o cliente não confirmar recebimento. [09:15]</li><li>Contras (3 tentativas): mata cedo demais clientes com indisponibilidade de horas — todas as tentativas se esgotariam em ~30 minutos. [09:16]</li><li>Contras (indefinido): evento fica pendurado para sempre se o cliente tiver saído de operação definitivamente. [09:15-09:16]</li></ul>
+<h3 id="marcar-failed-na-propria-outbox-sem-tabela-separada">Marcar "failed" na própria outbox (sem tabela separada)</h3>
+<ul><li>Prós: menor complexidade de modelagem, sem tabela adicional. [09:18, inferido do contraste com a opção escolhida]</li><li>Contras: mistura eventos falhados definitivamente com eventos pendentes na mesma tabela, dificultando a leitura da outbox principal. [09:18 Diego]</li><li>Contras: perde a função de evidência dedicada para debug e reprocessamento que uma tabela separada oferece. [09:18 Diego]</li></ul>
+<h2 id="consequencias">Consequências</h2>
+<p>A política escolhida cobre a grande maioria dos cenários reais de indisponibilidade de clientes observados até o momento (incluindo manutenções planejadas de até 2h) sem exigir intervenção manual, e a Dead Letter Queue em tabela separada garante que falhas permanentes não se percam e fiquem disponíveis para auditoria e reprocessamento. Como o worker de entrega opera em polling único (a cada 2 segundos), os eventos em retry competem pelo mesmo ciclo de processamento que os eventos novos, ainda que cada evento só seja reconsiderado após o intervalo de backoff correspondente. [09:16, 09:18, 09:09-09:11]</p>
+<p>Por outro lado, o reprocessamento de eventos na DLQ é manual e restrito a usuários com papel ADMIN (ver <a href="adr-006.html">ADR-006</a>, que trata do reuso de <code>requireRole('ADMIN')</code> para o endpoint de replay). Além disso, o timeout de 10 segundos por tentativa de entrega significa que qualquer cliente lento (ainda que operacional) é tratado como falha e reentra no ciclo de retry, consumindo uma das 5 tentativas disponíveis. [09:42]</p>
+<p>Dois pontos não foram discutidos na reunião e ficam <strong>em aberto</strong>: (1) o critério exato de falha — quais códigos de resposta HTTP contam como falha vs. sucesso — que dispara o retry; e (2) a política de retenção/expurgo dos registros na tabela <code>webhook_dead_letter</code> ao longo do tempo.</p>
+<h2 id="referencias">Referências</h2>
+<ul><li><code>prisma/schema.prisma</code> (tabelas <code>webhook_outbox</code> e <code>webhook_dead_letter</code>)</li><li><code>src/middlewares/auth.middleware.ts</code> (<code>requireRole('ADMIN')</code> no endpoint de replay)</li></ul>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

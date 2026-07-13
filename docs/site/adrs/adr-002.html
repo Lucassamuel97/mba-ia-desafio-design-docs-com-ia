@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-002 · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="../index.html">Início</a><a href="../prd.html">PRD</a><a href="../rfc.html">RFC</a><a href="../fdd.html">FDD</a><a href="index.html">ADRs</a><a href="../tracker.html">Tracker</a><a href="../diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h1 id="adr-002-worker-dedicado-em-processo-separado-com-polling-de-2-segundos">ADR-002: Worker Dedicado em Processo Separado com Polling de 2 Segundos</h1>
+<p><strong>Status:</strong> Aceito <strong>Data:</strong> Desconhecida (data exata da reunião não especificada na transcrição/ata) <strong>Related ADRs:</strong> <a href="adr-001.html">ADR-001</a> — Padrão Outbox no MySQL para Eventos de Webhook (decisão que origina a necessidade deste worker de leitura da fila)</p>
+<h2 id="contexto-e-declaracao-do-problema">Contexto e Declaração do Problema</h2>
+<p>Após a decisão de adotar o padrão Outbox no MySQL para registrar eventos de mudança de status de pedidos (inserção na mesma transação do <code>changeStatus</code>), restava definir como o worker consumidor processaria os eventos pendentes: (1) qual o mecanismo de leitura da fila e (2) onde esse worker deveria ser executado. Essa necessidade decorre de um pedido formal de três clientes B2B (Atlas Comercial, MaxDistribuição e Nova Cargo), que hoje precisam consultar repetidamente o sistema para saber se o status de seus pedidos mudou.</p>
+<p>MySQL não oferece um mecanismo de notificação nativo equivalente ao NOTIFY/LISTEN do PostgreSQL. Um trigger de banco de dados só executa SQL e não é capaz de notificar um processo externo; contornar essa limitação escrevendo em arquivo ou chamando um endpoint HTTP a partir do trigger foi considerado uma solução inadequada. Os clientes B2B que motivaram a feature (Atlas Comercial, MaxDistribuição, Nova Cargo) definiram como aceitável qualquer latência abaixo de 10 segundos para considerar a notificação "tempo real". [09:09 Diego]</p>
+<p>Também era necessário decidir onde o worker executaria. Rodar o worker na mesma instância/processo da API traria acoplamento operacional indesejado: um reinício da API (deploy, crash, autoscaling) derrubaria o worker junto, interrompendo o processamento da fila de eventos pendentes. [09:11 Diego]</p>
+<h2 id="motivadores-da-decisao">Motivadores da Decisão</h2>
+<ul><li>Requisito não funcional de latência: notificações devem ser entregues em menos de 10</li></ul>
+<p>segundos, limite definido pelos clientes B2B como critério de "tempo real".</p>
+<ul><li>MySQL não possui mecanismo de notificação nativo (sem equivalente a NOTIFY/LISTEN), o que</li></ul>
+<p>descarta soluções reativas via trigger de banco de dados.</p>
+<ul><li>Necessidade de isolar o ciclo de vida do worker do ciclo de vida da API, para que reinícios</li></ul>
+<p>da API não interrompam o processamento de webhooks pendentes.</p>
+<ul><li>Simplicidade operacional: equipe pequena, sem apetite para introduzir nova infraestrutura de</li></ul>
+<p>mensageria apenas para obter reatividade.</p>
+<ul><li>Necessidade de ordenação previsível dos eventos por pedido, ainda que sem garantia de</li></ul>
+<p>ordenação global entre pedidos diferentes.</p>
+<ul><li>Reaproveitar a mesma base de dados e configuração de conexão (<code>DATABASE_URL</code>) já usada pela</li></ul>
+<p>API, mantendo apenas uma instância de client Prisma separada por processo.</p>
+<h2 id="opcoes-consideradas">Opções Consideradas</h2>
+<ul><li>Worker dedicado em processo separado, com polling a cada 2 segundos (escolhida)</li><li>Trigger de banco de dados para reatividade orientada a eventos</li><li>Worker executando dentro da mesma instância/processo da API</li></ul>
+<h2 id="resultado-da-decisao">Resultado da Decisão</h2>
+<p>Opção escolhida: worker dedicado, executando como processo separado (entry-point próprio, iniciado via script dedicado), fazendo polling a cada 2 segundos pelos eventos pendentes mais antigos (ordenados por <code>created_at</code>), processando-os e marcando-os como entregues. O worker usa o mesmo banco de dados (mesma <code>DATABASE_URL</code>) mas mantém uma instância própria do client Prisma, já que esse client é vinculado ao processo que o instancia. [09:09-09:11, 09:28-09:30]</p>
+<p>O intervalo de polling de 2 segundos foi considerado suficiente porque garante uma latência de pior caso de aproximadamente 2 segundos, dentro do requisito de menos de 10 segundos definido pelos clientes B2B. A decisão foi registrada formalmente pela equipe como aceita, com a ressalva explícita de que 2 segundos representa a latência assumida no pior caso. [09:10] Larissa</p>
+<h2 id="pros-e-contras-das-opcoes">Prós e Contras das Opções</h2>
+<p><strong>Worker dedicado, processo separado, polling 2s (escolhida)</strong></p>
+<ul><li>Prós: latência de pior caso ~2s, dentro do SLA de &lt;10s exigido pelos clientes. [09:10]</li><li>Prós: isolamento de falhas entre API e processamento de webhooks — reinício da API não afeta</li></ul>
+<p>o worker. [09:11]</p>
+<ul><li>Prós: usa apenas a infraestrutura MySQL já existente, sem novas dependências de infraestrutura.</li><li>Contras: com um único worker, a ordenação de eventos só é garantida por pedido (via</li></ul>
+<p><code>created_at</code>), sem garantia de ordenação global. [09:12-09:13]</p>
+<p><strong>Trigger de banco de dados para reatividade</strong></p>
+<ul><li>Prós: notificação potencialmente mais próxima do instante de inserção do evento na outbox.</li><li>Contras: MySQL não notifica processos externos a partir de um trigger — ele só executa SQL.</li></ul>
+<p>[09:09]</p>
+<ul><li>Contras: exigiria mecanismos improvisados (escrita em arquivo, chamada a endpoint)</li></ul>
+<p>considerados inadequados pela equipe. [09:09 Diego]</p>
+<ul><li>Contras: descartada pela equipe. [09:09]</li></ul>
+<p><strong>Worker na mesma instância/processo da API</strong></p>
+<ul><li>Prós: simplicidade de deployment — um único processo/instância a gerenciar.</li><li>Contras: reinício da API mataria o worker junto, interrompendo o processamento de eventos</li></ul>
+<p>pendentes. [09:11]</p>
+<ul><li>Contras: acopla o ciclo de vida operacional de dois componentes com responsabilidades distintas.</li><li>Contras: descartada pela equipe. [09:11]</li></ul>
+<h2 id="consequencias">Consequências</h2>
+<p>Positivamente, o isolamento entre API e worker reduz o risco de falhas em cascata e mantém a latência de entrega dentro do limite aceito pelos clientes B2B. A reutilização do mesmo banco de dados, com uma instância de Prisma própria por processo, evita a necessidade de nova infraestrutura de mensageria. [09:09-09:11, 09:28-09:30]</p>
+<p>Como limitação conhecida, a ordenação de eventos entregue aos clientes é garantida apenas por pedido (via <code>created_at</code>) enquanto houver um único worker; não há garantia de ordenação global entre pedidos diferentes. Caso a equipe decida escalar para múltiplos workers no futuro, será necessário particionar o processamento por pedido ou introduzir lock pessimista para preservar essa garantia — hoje tratado explicitamente como problema a ser resolvido futuramente, fora do escopo desta decisão. [09:12-09:13] Diego</p>
+<p><strong>Pontos em aberto (não discutidos na reunião):</strong> (1) o mecanismo de orquestração/restart que manterá o processo do worker em execução em produção (ex.: supervisor de processo, orquestrador de containers); (2) o volume ou limiar de eventos que indicará quando a migração para múltiplos workers — e o particionamento por pedido ou lock pessimista associado — se tornará necessária.</p>
+<h2 id="referencias">Referências</h2>
+<ul><li><code>src/server.ts</code> — padrão de entry-point existente na aplicação, espelhado para criar o</li></ul>
+<p>entry-point do worker.</p>
+<ul><li><code>src/worker.ts</code> — novo entry-point dedicado ao processo do worker.</li><li><code>src/modules/webhooks/webhook.worker.ts</code> (alternativa: <code>webhook.processor.ts</code>) — lógica de</li></ul>
+<p>processamento do worker.</p>
+<ul><li><code>src/config</code> — provedor do client Prisma; o worker abre instância própria usando a mesma</li></ul>
+<p><code>DATABASE_URL</code>.</p>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Início · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="index.html" class="active">Início</a><a href="prd.html">PRD</a><a href="rfc.html">RFC</a><a href="fdd.html">FDD</a><a href="adrs/index.html">ADRs</a><a href="tracker.html">Tracker</a><a href="diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+
+<h1>Design Docs — Sistema de Webhooks de Notificação de Pedidos</h1>
+<p>Documentação técnica da feature, gerada a partir da transcrição da reunião e do código do OMS.
+Esta é a versão navegável (documentação viva) do pacote de design docs. Commit de origem:
+<code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3">33cfae8</a></code>.</p>
+<div class="cards">
+  <a class="card" href="prd.html"><h3>PRD</h3><p>Produto: por quê e o quê.</p></a>
+  <a class="card" href="rfc.html"><h3>RFC</h3><p>Proposta técnica, alternativas e questões em aberto.</p></a>
+  <a class="card" href="fdd.html"><h3>FDD</h3><p>Como construir: contratos, erros, integração.</p></a>
+  <a class="card" href="adrs/index.html"><h3>ADRs</h3><p>As 6 decisões arquiteturais.</p></a>
+  <a class="card" href="tracker.html"><h3>Tracker</h3><p>Rastreabilidade de cada item à origem.</p></a>
+  <a class="card" href="diagrams.html"><h3>Diagramas</h3><p>Fluxos e modelo de dados (Mermaid).</p></a>
+</div>
+<h2>ADRs</h2>
+<div class="cards">
+  <a class="card" href="adrs/adr-001.html"><h3>ADR-001</h3><p>Padrão Outbox no MySQL para Eventos de Webhook</p></a>
+  <a class="card" href="adrs/adr-002.html"><h3>ADR-002</h3><p>Worker Dedicado em Processo Separado com Polling de 2 Segundos</p></a>
+  <a class="card" href="adrs/adr-003.html"><h3>ADR-003</h3><p>Retry com Backoff Exponencial e Dead Letter Queue em Tabela Separada</p></a>
+  <a class="card" href="adrs/adr-004.html"><h3>ADR-004</h3><p>Autenticação de Webhooks com HMAC-SHA256 e Secret Única por Endpoint com Rotação</p></a>
+  <a class="card" href="adrs/adr-005.html"><h3>ADR-005</h3><p>Entrega At-Least-Once com X-Event-Id para Deduplicação no Cliente</p></a>
+  <a class="card" href="adrs/adr-006.html"><h3>ADR-006</h3><p>Reuso dos Padrões Existentes do Projeto no Módulo de Webhooks</p></a>
+</div>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-001 · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="../index.html">Início</a><a href="../prd.html">PRD</a><a href="../rfc.html">RFC</a><a href="../fdd.html">FDD</a><a href="index.html">ADRs</a><a href="../tracker.html">Tracker</a><a href="../diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h1 id="adr-001-padrao-outbox-no-mysql-para-eventos-de-webhook">ADR-001: Padrão Outbox no MySQL para Eventos de Webhook</h1>
+<p><strong>Status:</strong> Aceita <strong>Data:</strong> Desconhecida (decisão fechada em reunião técnica; nenhuma data de calendário foi registrada na transcrição, apenas "quinta-feira, 09:00") <strong>Related ADRs:</strong> <a href="adr-002.html">ADR-002</a> (worker que consome a outbox), <a href="adr-003.html">ADR-003</a> (retry/DLQ sobre eventos da outbox), <a href="adr-005.html">ADR-005</a> (event_id gerado na inserção)</p>
+<h2 id="contexto-e-problema">Contexto e Problema</h2>
+<p>A feature de webhooks precisa notificar clientes B2B quando o status de um pedido muda. A dúvida inicial era disparar a chamada HTTP de forma síncrona dentro do <code>changeStatus</code> ou registrar o evento e processá-lo fora da transação. O disparo síncrono foi descartado porque a transação de mudança de status já é pesada — atualiza o pedido e registros relacionados de histórico e estoque em múltiplas tabelas. Uma chamada HTTP no meio acoplaria a latência de um cliente externo ao tempo de lock do banco, e um cliente offline forçaria a pergunta impossível de "dar rollback na mudança de status". [09:04 Bruno]</p>
+<p>Decidiu-se pelo padrão <strong>Outbox</strong>: na mesma transação SQL que muda o status, insere-se uma linha em <code>webhook_outbox</code>. Se a transação commita, o evento está garantido; se dá rollback, o evento some junto — sem inconsistência possível. [09:06 Diego] Um fator adicional discutido foi que o MySQL não possui um mecanismo nativo de notificação equivalente ao NOTIFY/LISTEN do Postgres — um trigger de banco até existe, mas só executa SQL, não notifica um processo externo — o que reforça a necessidade de um processo de polling separado para ler a outbox, tema tratado em ADR própria sobre o worker.</p>
+<p>O gatilho de negócio para esta decisão foi um pedido formal de três clientes B2B (Atlas Comercial, MaxDistribuição, Nova Cargo) para serem notificados em tempo real (abaixo de 10 segundos) quando o status de um pedido muda, em vez de fazer polling manual em <code>GET /orders</code>. Essa exigência de latência baixa, somada à necessidade de garantir que nenhum evento se perca, foi o que colocou o padrão Outbox — em vez do disparo síncrono — como candidato natural desde o início da discussão.</p>
+<h2 id="fatores-da-decisao">Fatores da Decisão</h2>
+<ul><li>Necessidade de atomicidade total entre a mudança de status do pedido e o registro do evento de notificação, sem possibilidade de inconsistência entre os dois estados. [09:06 Diego]</li><li>Exigência de não acoplar a latência e a disponibilidade de um endpoint de cliente externo ao tempo de resposta e ao lock da transação de <code>changeStatus</code>. [09:04 Bruno]</li><li>Restrição de equipe pequena, evitando subir infraestrutura nova (ex.: Redis Cluster) quando o MySQL já existente pode resolver o problema. [09:07 Diego]</li><li>Ausência de mecanismo nativo de notificação no MySQL (sem NOTIFY/LISTEN), o que direciona a leitura da outbox para um processo de polling.</li><li>Requisito não funcional de latência abaixo de 10 segundos para o cliente perceber a mudança como "tempo real".</li></ul>
+<h2 id="opcoes-consideradas">Opções Consideradas</h2>
+<ol><li><strong>Outbox persistido no MySQL já existente</strong> (escolhida)</li><li>**Disparo síncrono no <code>order.service</code>** — descartada [09:04, 09:06]</li><li><strong>Redis Streams / fila externa</strong> — descartada [09:07 Diego]</li></ol>
+<h2 id="decisao">Decisão</h2>
+<p>Opção escolhida: <strong>Outbox persistido no MySQL</strong>, porque garante atomicidade total entre a mudança de status e o registro do evento dentro da mesma transação, sem exigir infraestrutura adicional além do banco já existente. O evento é inserido na tabela de outbox reaproveitando o mesmo cliente transacional já em uso na mudança de status do pedido, garantindo que ambas as operações commitem ou sofrem rollback juntas. [09:41 Bruno/Diego]</p>
+<h2 id="pros-e-contras-das-opcoes">Prós e Contras das Opções</h2>
+<h3 id="outbox-no-mysql-escolhida">Outbox no MySQL (escolhida)</h3>
+<ul><li>Atomicidade total entre mudança de status e registro do evento; zero infraestrutura nova. [09:06 Diego]</li><li>Tabela indexada por status e data de criação; worker lê pendentes em lote pequeno. [09:08]</li><li>Exige um worker de polling separado para processar a outbox, tratado em ADR própria sobre o worker.</li><li>Acúmulo de linhas exige arquivamento futuro (linhas entregues após ~30 dias), fora do escopo desta decisão. [09:08]</li></ul>
+<h3 id="disparo-sincrono-no-orderservice-descartada">Disparo síncrono no <code>order.service</code> (descartada)</h3>
+<ul><li>Simplicidade de implementação, sem necessidade de worker separado ou tabela adicional.</li><li>Acopla a latência e a disponibilidade do endpoint do cliente externo ao tempo de lock da transação de <code>changeStatus</code>. [09:04 Bruno]</li><li>Não permite rollback seguro da mudança de status quando a chamada HTTP falha ou o cliente está offline. [09:04, 09:06]</li></ul>
+<h3 id="redis-streams-fila-externa-descartada">Redis Streams / fila externa (descartada)</h3>
+<ul><li>Desacoplaria totalmente o processamento de eventos do banco transacional, com infraestrutura dedicada a mensageria.</li><li>Exigiria subir mais infraestrutura (Redis Cluster), considerada overengineering para o tamanho atual do time. [09:07 Diego]</li><li>Outbox no MySQL já existente resolve o mesmo problema sem custo de operação adicional. [09:07 Diego]</li></ul>
+<h2 id="consequencias">Consequências</h2>
+<p>A adoção do Outbox garante consistência forte entre o estado do pedido e o evento de notificação, eliminando a classe de bugs em que o status muda mas o cliente não é avisado (ou vice-versa). Em contrapartida, a solução desloca a complexidade operacional para um processo de leitura assíncrono (worker), que passa a ser uma peça de infraestrutura própria a ser monitorada, com decisões de intervalo de polling, retry e ordenação tratadas em ADRs separadas sobre o worker e sobre o mecanismo de retry/DLQ.</p>
+<p>A tabela <code>webhook_outbox</code> tende a crescer continuamente enquanto eventos entregues não forem arquivados. A necessidade de arquivamento (janela de ~30 dias) foi identificada na reunião, mas ficou explicitamente fora do escopo desta decisão. [09:08]</p>
+<p>Esta decisão estabelece a base transacional sobre a qual dependem outras decisões do módulo de webhooks: o mecanismo de leitura da outbox por um worker em processo separado, a política de retry e Dead Letter Queue para eventos não entregues, e a geração do identificador único do evento (<code>event_id</code>) no momento da inserção na outbox, usado posteriormente para deduplicação no lado do cliente. Essas decisões são tratadas em ADRs próprias do módulo WEBHOOKS.</p>
+<p><strong>Ponto em aberto:</strong> responsável e prazo para a política de arquivamento da tabela <code>webhook_outbox</code> ainda não foram definidos (não discutido na reunião).</p>
+<h2 id="referencias">Referências</h2>
+<ul><li><code>src/modules/orders/order.service.ts</code> (método <code>changeStatus</code>, linhas 126-179; hook de insert entre a linha 167 e 169, com <code>tx</code>/<code>order</code>/<code>from</code>/<code>to</code> em escopo)</li><li><code>prisma/schema.prisma</code> (nova tabela <code>webhook_outbox</code>, IDs em UUID conforme padrão do projeto [09:51])</li><li>TRANSCRICAO: [09:04] Bruno, [09:06] Diego, [09:07] Diego, [09:08] Diego, [09:41] Bruno/Diego</li><li><code>docs/adrs/context/base-factual.md:16</code> (D1 — Padrão Outbox no MySQL, insert na mesma transação do <code>changeStatus</code>)</li></ul>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

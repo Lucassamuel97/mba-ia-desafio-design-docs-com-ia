@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-004 · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="../index.html">Início</a><a href="../prd.html">PRD</a><a href="../rfc.html">RFC</a><a href="../fdd.html">FDD</a><a href="index.html">ADRs</a><a href="../tracker.html">Tracker</a><a href="../diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h1 id="adr-004-autenticacao-de-webhooks-com-hmac-sha256-e-secret-unica-por-endpoint-com-rotacao">ADR-004: Autenticação de Webhooks com HMAC-SHA256 e Secret Única por Endpoint com Rotação</h1>
+<p><strong>Status:</strong> Aceita <strong>Data:</strong> Desconhecida (decisão fechada em reunião técnica; nenhuma data de calendário foi registrada na transcrição, apenas "quinta-feira, 09:00") <strong>Related ADRs:</strong> <a href="adr-005.html">ADR-005</a> — decisão irmã sobre o mesmo contrato de headers de entrega (<code>X-Signature</code>, <code>X-Event-Id</code>)</p>
+<h2 id="contexto-e-problema">Contexto e Problema</h2>
+<p>Os webhooks do sistema expõem dados de pedidos para endpoints de clientes fora da nossa infraestrutura. É necessário garantir que o cliente consiga validar que a requisição realmente veio da nossa plataforma e que ninguém adulterou o payload no caminho. [09:19 Sofia]</p>
+<p>Além da autenticidade e integridade do payload, a solução precisa lidar com o ciclo de vida da credencial usada na assinatura: como ela é isolada por cliente e como pode ser trocada sem interromper a integração já em produção do cliente.</p>
+<p>A decisão foi fechada na reunião técnica, com os requisitos não funcionais de TLS obrigatório e limite de payload de 64KB tratados como validações de schema, e não como decisões arquiteturais separadas. [09:23-09:24 Sofia/Diego]</p>
+<h2 id="fatores-de-decisao">Fatores de Decisão</h2>
+<ul><li>Necessidade de o cliente validar autenticidade e integridade do payload recebido, já que o webhook trafega fora da nossa infraestrutura. [09:19 Sofia]</li><li>Preferência por padrão de mercado amplamente suportado, evitando implementação criptográfica proprietária. [09:20 Sofia]</li><li>Limitação do raio de impacto (blast radius) em caso de vazamento de credencial. [09:21 Sofia]</li><li>Histórico real de incidente: cliente já vazou secret em log de aplicação, exigindo mecanismo de rotação sem downtime. [09:22 Diego/Sofia]</li></ul>
+<h2 id="opcoes-consideradas">Opções Consideradas</h2>
+<ul><li>HMAC-SHA256 com secret única por endpoint e rotação com grace period de 24h (escolhida)</li><li>Secret global da plataforma, compartilhada entre todos os clientes</li><li>Secret única por endpoint, mas sem rotação ou sem grace period na rotação</li></ul>
+<h2 id="decisao-tomada">Decisão Tomada</h2>
+<p>Decisão: assinar o corpo da requisição com <strong>HMAC-SHA256</strong>, usando uma secret <strong>única por endpoint</strong> de webhook (não uma secret global da plataforma), com a assinatura enviada no header <code>X-Signature</code>. [09:20-09:21 Sofia]</p>
+<p>A secret é rotacionável via endpoint da API; ao rotacionar, a secret antiga permanece válida por <strong>24h em paralelo</strong> com a nova (grace period), dando tempo ao cliente para migrar seus sistemas antes que a secret antiga deixe de funcionar. [09:21-09:22 Sofia]</p>
+<p>HMAC-SHA256 foi escolhido por ser padrão de mercado, com biblioteca disponível em praticamente qualquer stack cliente, evitando que o time precise manter ou justificar um mecanismo de assinatura proprietário. [09:20 Sofia]</p>
+<h2 id="pros-e-contras-das-opcoes">Prós e Contras das Opções</h2>
+<h3 id="hmac-sha256-com-secret-unica-por-endpoint-e-rotacao-escolhida">HMAC-SHA256 com secret única por endpoint e rotação (escolhida)</h3>
+<ul><li>Prós: integridade e autenticidade do payload verificáveis pelo cliente. [09:19-09:20 Sofia]</li><li>Prós: vazamento de uma secret compromete apenas um endpoint, não a base de clientes inteira. [09:21 Sofia]</li><li>Prós: rotação com grace period de 24h permite migração sem downtime do cliente. [09:21-09:22 Sofia]</li><li>Contras: exige guardar por registro <code>url + secret (+ secret antiga/validade) + customer_id + estado ativo</code>, aumentando a superfície da tabela de configuração. [09:21 Sofia/Bruno]</li></ul>
+<h3 id="secret-global-da-plataforma">Secret global da plataforma</h3>
+<ul><li>Prós: modelo de dados mais simples, sem necessidade de secret por registro.</li><li>Contras: um único vazamento compromete a autenticidade dos webhooks de todos os clientes. [09:21 Sofia]</li></ul>
+<h3 id="secret-unica-por-endpoint-sem-rotacao-ou-sem-grace-period">Secret única por endpoint sem rotação (ou sem grace period)</h3>
+<ul><li>Prós: implementação mais simples, sem necessidade de manter secret antiga em paralelo.</li><li>Contras: já houve caso real de cliente vazando secret em log de aplicação; sem grace period, a troca de secret geraria downtime na integração do cliente. [09:22 Diego/Sofia]</li></ul>
+<h2 id="consequencias">Consequências</h2>
+<p>A adoção de secret por endpoint com rotação limita o raio de impacto de um vazamento a um único cliente/endpoint, alinhado ao incidente já observado de secret vazada em log de aplicação. Em contrapartida, a tabela de configuração de webhook precisa armazenar tanto a secret ativa quanto a secret anterior durante o período de convivência, junto com sua validade. [09:21 Sofia]</p>
+<p>TLS obrigatório (URLs https, com recusa de http via schema Zod) e o limite de payload de 64KB são requisitos não funcionais relacionados a essa mesma superfície de segurança, mas foram tratados como validações de schema e não como decisões arquiteturais independentes. [09:23-09:24 Sofia/Diego]</p>
+<p><strong>Ponto em aberto:</strong> a forma de armazenamento da secret em repouso (texto plano vs. criptografada/hash no banco) não foi discutida na reunião.</p>
+<p><strong>Ponto em aberto:</strong> não há definição de limite de frequência para rotação de secret pelo cliente (ex.: quantas rotações por período são permitidas).</p>
+<h2 id="referencias">Referências</h2>
+<ul><li><code>prisma/schema.prisma</code> — tabela de configuração de webhook com secret por endpoint</li><li><code>src/modules/webhooks/webhook.schemas.ts</code> — validação Zod: https obrigatório, limite de tamanho</li></ul>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

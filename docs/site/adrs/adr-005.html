@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-005 · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="../index.html">Início</a><a href="../prd.html">PRD</a><a href="../rfc.html">RFC</a><a href="../fdd.html">FDD</a><a href="index.html">ADRs</a><a href="../tracker.html">Tracker</a><a href="../diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h1 id="adr-005-entrega-at-least-once-com-x-event-id-para-deduplicacao-no-cliente">ADR-005: Entrega At-Least-Once com X-Event-Id para Deduplicação no Cliente</h1>
+<p><strong>Status:</strong> Aceito <strong>Data:</strong> Não especificada na fonte (transcrição registra apenas "quinta-feira, 09:00"; decisão na janela [09:24-09:26] da reunião) <strong>Related ADRs:</strong> <a href="adr-003.html">ADR-003</a> (Retry com Backoff Exponencial e Dead Letter Queue em Tabela Separada — mecanismo de reentrega que origina as duplicatas tratadas aqui), <a href="adr-004.html">ADR-004</a> (Autenticação de Webhooks com HMAC-SHA256 e Secret Única por Endpoint — decisão irmã sobre o mesmo contrato de headers de entrega)</p>
+<h2 id="contexto-e-problema">Contexto e Problema</h2>
+<p>O sistema de webhooks de notificação de pedidos usa retry com backoff para lidar com clientes indisponíveis ou lentos. Esse mecanismo cria a possibilidade de o mesmo evento ser entregue mais de uma vez — por exemplo, quando o cliente recebe e responde lentamente, o worker considera a tentativa como falha e reenvia o evento. Era necessário definir qual garantia de entrega o sistema ofereceria e como o cliente conseguiria diferenciar uma entrega duplicada de um evento novo. [09:24-09:25]</p>
+<p>A alternativa de garantir exactly-once foi discutida e descartada por exigir coordenação entre os dois lados (backend e cliente), o que aumentaria significativamente a complexidade da integração para um ganho marginal, já que at-least-once com identificador de evento resolve a maior parte dos casos práticos. [09:25 Diego]</p>
+<p>A decisão também levou em conta que transferir a responsabilidade de deduplicação para o cliente exige comunicação clara, o que gerou um compromisso de documentação destacada no portal do desenvolvedor. [09:25-09:26 Sofia/Marcos]</p>
+<h2 id="fatores-da-decisao">Fatores da Decisão</h2>
+<ul><li>Necessidade de garantir que o cliente consiga identificar entregas duplicadas geradas pelo mecanismo de retry.</li><li>Custo de coordenação distribuída exigido por uma garantia exactly-once entre backend e cliente. [09:25 Diego]</li><li>Adoção de um padrão já validado no mercado por provedores de webhook como Stripe e GitHub. [09:25 Diego]</li><li>Preferência por simplicidade operacional, evitando estado de coordenação compartilhado entre os dois lados.</li><li>Necessidade de comunicação explícita ao cliente sobre a responsabilidade de deduplicar eventos pelo lado dele. [09:25-09:26 Sofia/Marcos]</li><li>Existência de um identificador único (UUID) gerado no momento da inserção do evento na outbox, disponível para uso como chave de deduplicação. [09:25 Diego]</li></ul>
+<h2 id="opcoes-consideradas">Opções Consideradas</h2>
+<ol><li>At-least-once com identificador de evento (<code>X-Event-Id</code>) para deduplicação no cliente</li><li>Exactly-once com coordenação entre backend e cliente</li></ol>
+<h2 id="decisao">Decisão</h2>
+<p>Opção escolhida: **at-least-once com <code>X-Event-Id</code>**, porque resolve 99% dos casos práticos com muito menos complexidade do que exactly-once, que exigiria coordenação entre os dois lados. [09:25 Diego]</p>
+<p>Cada evento recebe um <code>event_id</code> (UUID) gerado no momento em que entra na outbox, enviado ao cliente no header <code>X-Event-Id</code>. A deduplicação de eventos repetidos passa a ser responsabilidade do cliente, que deve usar esse identificador estável para reconhecer reentregas. [09:25 Diego]</p>
+<p>O time reconheceu explicitamente que essa escolha transfere trabalho para o lado do cliente, mas considerou esse custo aceitável frente à simplicidade obtida, dado que provedores de referência do mercado adotam a mesma estratégia. [09:25 Diego]</p>
+<h2 id="pros-e-contras-das-opcoes">Prós e Contras das Opções</h2>
+<h3 id="at-least-once-com-x-event-id-escolhida">At-least-once com <code>X-Event-Id</code> (escolhida)</h3>
+<p>Prós:</p>
+<ul><li>Simplicidade operacional, sem necessidade de coordenação distribuída entre backend e cliente.</li><li><code>event_id</code> estável por evento permite ao cliente implementar deduplicação confiável do próprio lado.</li><li>Segue padrão de mercado já adotado por provedores como Stripe e GitHub. [09:25 Diego]</li></ul>
+<p>Contras:</p>
+<ul><li>Transfere a responsabilidade de deduplicação para o cliente, exigindo documentação clara. [09:25 Sofia]</li><li>Depende de cada cliente implementar corretamente a lógica de deduplicação do lado dele.</li></ul>
+<h3 id="exactly-once-descartada">Exactly-once (descartada)</h3>
+<p>Prós:</p>
+<ul><li>Eliminaria a necessidade de o cliente implementar lógica própria de deduplicação.</li></ul>
+<p>Contras:</p>
+<ul><li>Exigiria coordenação distribuída entre backend e cliente, aumentando muito a complexidade da integração. [09:25 Diego]</li><li>Descartada por não se justificar frente ao ganho marginal sobre at-least-once, que já cobre a maior parte dos casos. [09:25 Diego]</li></ul>
+<h2 id="consequencias">Consequências</h2>
+<p>A garantia at-least-once elimina a necessidade de qualquer coordenação distribuída entre backend e cliente para controle de entrega, e o <code>event_id</code> gerado na inserção na outbox permanece estável para o mesmo evento mesmo em caso de reentrega, permitindo deduplicação confiável do lado do cliente.</p>
+<p>Em contrapartida, a responsabilidade de deduplicar eventos passa a ser do cliente. Essa transferência de responsabilidade foi sinalizada como ponto de atenção pela engenharia de segurança e tratada com o compromisso de documentação destacada no portal do desenvolvedor, a cargo do produto. [09:25-09:26 Sofia/Marcos]</p>
+<p>O <code>X-Event-Id</code> também compõe o conjunto de headers enviados em cada entrega, junto com <code>X-Signature</code>, <code>X-Timestamp</code> e <code>X-Webhook-Id</code>, formando o contrato de integração exposto aos clientes B2B. [09:44] Como o <code>event_id</code> é gerado no momento da inserção do evento na outbox, a consistência da garantia at-least-once depende diretamente da atomicidade dessa inserção em relação à mudança de status do pedido.</p>
+<h2 id="referencias">Referências</h2>
+<ul><li><code>prisma/schema.prisma</code> (<code>webhook_outbox.event_id</code> em UUID, gerado na inserção)</li><li><code>src/modules/orders/order.service.ts:126</code> (método <code>changeStatus</code>, ponto de integração onde o evento é inserido na outbox na mesma transação, origem do <code>event_id</code>)</li></ul>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

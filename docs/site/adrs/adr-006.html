@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ADR-006 · Design Docs Webhooks</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--line:#e3e8ee;--accent:#2563eb;--code-bg:#f4f6f8;--th:#f0f4f9;}
+@media (prefers-color-scheme: dark){:root{--bg:#0f1216;--fg:#e6e9ee;--muted:#9aa4af;--line:#252b33;--accent:#6ea8fe;--code-bg:#161b22;--th:#181f27;}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.topbar{position:sticky;top:0;z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center}
+.brand{font-weight:700}.brand span{color:var(--muted);font-weight:500}
+.nav{display:flex;flex-wrap:wrap;gap:.25rem;margin-left:auto}
+.nav a{padding:.3rem .7rem;border-radius:6px;text-decoration:none;color:var(--fg);font-weight:500}
+.nav a:hover{background:var(--code-bg)}
+.nav a.active{background:var(--accent);color:#fff}
+.commit{width:100%;color:var(--muted);font-size:.85rem}
+.commit code a{color:var(--accent);text-decoration:none}
+.content{max-width:900px;margin:0 auto;padding:1.5rem 1rem 3rem}
+.content h1{font-size:1.9rem;border-bottom:2px solid var(--line);padding-bottom:.3rem;margin-top:1.5rem}
+.content h2{font-size:1.4rem;border-bottom:1px solid var(--line);padding-bottom:.2rem;margin-top:2rem}
+.content h3{font-size:1.15rem;margin-top:1.6rem}
+.content h4{font-size:1rem;margin-top:1.3rem;color:var(--muted)}
+a{color:var(--accent)}
+code{background:var(--code-bg);padding:.12em .4em;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+pre{background:var(--code-bg);padding:1rem;border-radius:8px;overflow-x:auto;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+pre.mermaid{background:var(--bg);text-align:center}
+blockquote{border-left:4px solid var(--accent);margin:1rem 0;padding:.3rem 1rem;color:var(--muted);background:var(--code-bg);border-radius:0 6px 6px 0}
+.table-wrap{overflow-x:auto;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--th)}
+hr{border:none;border-top:1px solid var(--line);margin:2rem 0}
+ul,ol{padding-left:1.4rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:1rem;text-decoration:none;color:var(--fg);display:block}
+.card:hover{border-color:var(--accent)}
+.card h3{margin:.2rem 0}.card p{color:var(--muted);margin:.2rem 0 0;font-size:.9rem}
+.foot{max-width:900px;margin:0 auto;padding:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
+  <nav class="nav"><a href="../index.html">Início</a><a href="../prd.html">PRD</a><a href="../rfc.html">RFC</a><a href="../fdd.html">FDD</a><a href="index.html">ADRs</a><a href="../tracker.html">Tracker</a><a href="../diagrams.html">Diagramas</a></nav>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+</header>
+<main class="content">
+<h1 id="adr-006-reuso-dos-padroes-existentes-do-projeto-no-modulo-de-webhooks">ADR-006: Reuso dos Padrões Existentes do Projeto no Módulo de Webhooks</h1>
+<p><strong>Status:</strong> Aceito <strong>Data:</strong> Desconhecida (nenhuma data de calendário foi registrada na transcrição da reunião, apenas "quinta-feira, 09:00") <strong>Related ADRs:</strong> <a href="adr-003.html">ADR-003</a> — Retry com Backoff Exponencial e Dead Letter Queue em Tabela Separada (endpoint de replay de DLQ reusa <code>requireRole('ADMIN')</code>)</p>
+<h2 id="contexto-e-problema">Contexto e Problema</h2>
+<p>O sistema de pedidos (OMS) já possui um conjunto consistente de padrões arquiteturais na sua codebase: estrutura modular por domínio (<code>controller/service/repository/routes/schemas</code>), hierarquia de erros baseada em <code>AppError</code>, logger Pino centralizado, middleware de erro genérico e validação de entrada com Zod. Ao projetar o novo módulo de webhooks — que notifica clientes B2B sobre mudanças de status de pedido —, a equipe discutiu se deveria introduzir estruturas ou bibliotecas próprias para esse módulo ou se deveria seguir integralmente o que já existe no restante do projeto. [09:27-09:30]</p>
+<p>A motivação central foi reduzir o custo cognitivo de quem for manter o código e preservar a coerência do OMS, evitando que o módulo de webhooks se torne uma ilha arquitetural distinta dos demais módulos em <code>src/modules/*</code>.</p>
+<h2 id="fatores-de-decisao">Fatores de Decisão</h2>
+<ul><li>Reduzir o custo cognitivo da equipe mantendo o novo módulo coerente com o restante do OMS. [09:27-09:30]</li><li>A estrutura modular (<code>controller/service/repository/routes/schemas</code>) já é o padrão usado em todos os demais módulos em <code>src/modules/*</code>. [09:27 Bruno]</li><li>Erros do módulo devem seguir a hierarquia <code>AppError</code> com códigos de prefixo próprio (família <code>WEBHOOK_*</code>), análogo ao padrão já usado por outros módulos (ex.: <code>INSUFFICIENT_STOCK</code>, <code>INVALID_STATUS_TRANSITION</code>). [09:28-09:29 Bruno/Larissa]</li><li>O middleware de erro centralizado já reconhece qualquer erro via <code>instanceof AppError</code> e trata Zod e Prisma, absorvendo o novo módulo sem qualquer alteração. [09:29 Bruno]</li><li>O logger Pino (<code>src/shared/logger</code>) já está disponível para o projeto inteiro, sem necessidade de introduzir um logger novo. [09:29 Bruno]</li><li>A autorização do endpoint administrativo de replay de DLQ pode reaproveitar o mecanismo <code>requireRole</code> já existente. [09:36 Sofia/Larissa]</li></ul>
+<h2 id="opcoes-consideradas">Opções Consideradas</h2>
+<ol><li>Reaproveitar ao máximo os padrões já existentes do projeto no módulo de webhooks (escolhida)</li><li>Introduzir estruturas e/ou bibliotecas próprias específicas para o módulo de webhooks</li></ol>
+<h2 id="resultado-da-decisao">Resultado da Decisão</h2>
+<p>Opção escolhida: reaproveitar ao máximo os padrões existentes do projeto no módulo <code>src/modules/webhooks</code>, incluindo a estrutura modular, a hierarquia de erros <code>AppError</code> com prefixo <code>WEBHOOK_*</code>, o logger Pino, o middleware de erro centralizado, a validação de entrada seguindo o padrão de schemas Zod já utilizado no projeto [09:30], e o reuso de <code>requireRole</code> para autorização do endpoint administrativo de replay de DLQ.</p>
+<p>A decisão foi fechada em reunião técnica, com base na avaliação de que os padrões já existentes cobrem integralmente as necessidades do módulo de webhooks, sem exigir novas bibliotecas ou abstrações.</p>
+<p>Rastreabilidade da decisão (transcrição da reunião): [09:27] Bruno, [09:28] Bruno/Diego, [09:29] Bruno/Larissa, [09:30] Bruno/Larissa, [09:36] Sofia/Larissa.</p>
+<h2 id="pros-e-contras-das-opcoes">Prós e Contras das Opções</h2>
+<h3 id="reaproveitar-os-padroes-existentes-do-projeto-escolhida">Reaproveitar os padrões existentes do projeto (escolhida)</h3>
+<p>Prós:</p>
+<ul><li>Curva de aprendizado baixa; o módulo de webhooks se parece com todos os outros módulos do OMS.</li><li>O middleware de erro centralizado e o logger Pino absorvem o novo módulo sem qualquer alteração de código compartilhado.</li><li>Menor custo de manutenção a longo prazo, por preservar consistência estrutural entre módulos.</li></ul>
+<p>Contras:</p>
+<ul><li>Não existe hoje um registro central dos códigos de erro do projeto, exigindo atenção manual para evitar colisão ao criar a família <code>WEBHOOK_*</code> (evidência de análise de código).</li></ul>
+<h3 id="introduzir-estruturasbibliotecas-proprias-para-o-modulo">Introduzir estruturas/bibliotecas próprias para o módulo</h3>
+<p>Prós:</p>
+<ul><li>Poderia, em tese, ser desenhada especificamente para as necessidades do módulo de webhooks.</li></ul>
+<p>Contras:</p>
+<ul><li>Quebraria a consistência do projeto e aumentaria o custo de manutenção, já que os padrões existentes cobrem o caso — descartada por esse motivo. [09:30]</li></ul>
+<h2 id="consequencias">Consequências</h2>
+<p>A adoção do reuso de padrões mantém a curva de aprendizado baixa para quem for dar manutenção no módulo, já que o módulo de webhooks se parece estruturalmente com todos os demais módulos do OMS. O middleware de erro centralizado e o logger Pino absorvem o novo módulo sem qualquer alteração em código compartilhado.</p>
+<p>Como risco identificado na análise de código, não existe hoje um registro central dos códigos de erro do projeto — isso exige atenção manual para evitar colisão entre a nova família <code>WEBHOOK_*</code> e códigos de erro de outros módulos existentes ou futuros. <strong>Ponto em aberto:</strong> não há processo ou ferramenta definido para registrar/validar novos prefixos de código de erro antes de introduzi-los, o que exige atenção manual contra colisões.</p>
+<p>Adicionalmente, o mecanismo <code>requireRole</code>, hoje utilizado em um único endpoint do sistema, não possui cobertura de testes (evidência de análise de código) — o novo endpoint administrativo de replay de DLQ passa a depender do mesmo mecanismo sem essa garantia adicional. <strong>Ponto em aberto:</strong> não há decisão ou prazo definido para adicionar cobertura de testes ao <code>requireRole</code> antes de ele suportar um segundo endpoint crítico (o replay de DLQ).</p>
+<h2 id="referencias">Referências</h2>
+<ul><li><code>src/shared/errors</code></li><li><code>src/shared/logger</code></li><li><code>src/middlewares/auth.middleware.ts</code></li><li><code>src/modules/orders</code></li></ul>
+</main>
+<footer class="foot">
+  Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
+  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+</footer>
+
+</body>
+</html>

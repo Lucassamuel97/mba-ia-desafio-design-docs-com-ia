@@ -1,0 +1,11 @@
+{
+  "source_commit": "33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3",
+  "generated_at": "2026-07-13T11:51:01.686Z",
+  "documents": [
+    "docs/PRD.md",
+    "docs/RFC.md",
+    "docs/FDD.md",
+    "docs/adrs/",
+    "docs/TRACKER.md"
+  ]
+}

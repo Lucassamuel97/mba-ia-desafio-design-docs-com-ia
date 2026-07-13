@@ -17,7 +17,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --ext .ts",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "docs:build": "node tools/docs-site/build.mjs",
+    "docs:update": "node tools/docs-site/update.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
