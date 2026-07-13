@@ -12,7 +12,7 @@ Node.js + TypeScript (strict), Express 4, Prisma 5 / MySQL 8. Monólito modular
 ## Módulos existentes (contexto)
 | ID | Escopo | Papel para a feature |
 | --- | --- | --- |
-| ORDERS | `src/modules/orders` | Ponto de integração: `changeStatus` (transação), máquina de estados (6 status / 8 transições) |
+| ORDERS | `src/modules/orders` | Ponto de integração: `changeStatus` (transação), máquina de estados (6 status / 7 transições) |
 | SHARED-ERRORS | `src/shared/errors` | Padrão `AppError` a estender com códigos `WEBHOOK_*` |
 | SHARED-LOGGER | `src/shared/logger` | Logger Pino a reusar |
 | MIDDLEWARES | `src/middlewares` | `requireRole('ADMIN')` a reusar no replay de DLQ |

@@ -248,7 +248,7 @@ Esta seção nomeia os pontos reais do código-base e como o módulo de webhooks
    chamar `publishWebhookEvent(tx, order, from, to)` entre a criação do histórico (linha 167) e o
    `refreshed` (linha 169), **dentro** da transação Prisma existente. É a única alteração
    intrusiva no código atual. [09:41]
-2. **`src/modules/orders/order.status.ts`** — a máquina de estados (6 status, 8 transições;
+2. **`src/modules/orders/order.status.ts`** — a máquina de estados (6 status, 7 transições;
    `canTransition`, `allowedTransitions`, `isTerminal`) é a fonte de verdade para validar o campo
    `events` do webhook e para os valores `from_status`/`to_status` do payload.
 3. **`src/shared/errors/app-error.ts`** — a família de erros `WEBHOOK_*` é criada como subclasses

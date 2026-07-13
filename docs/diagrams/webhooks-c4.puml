@@ -142,7 +142,7 @@ end note
 
 note bottom of OrderStatusMachine
   Inferência documentada
-  • 6 status, 8 transições citadas na FDD
+  • 6 status, 7 transições citadas na FDD
   • assinaturas exatas não detalhadas no documento
 end note
 

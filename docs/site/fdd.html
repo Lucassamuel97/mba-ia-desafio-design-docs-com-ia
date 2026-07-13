@@ -45,7 +45,7 @@ ul,ol{padding-left:1.4rem}
 <header class="topbar">
   <div class="brand">Design Docs · <span>Webhooks de Notificação de Pedidos</span></div>
   <nav class="nav"><a href="index.html">Início</a><a href="prd.html">PRD</a><a href="rfc.html">RFC</a><a href="fdd.html" class="active">FDD</a><a href="adrs/index.html">ADRs</a><a href="tracker.html">Tracker</a><a href="diagrams.html">Diagramas</a></nav>
-  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/33cfae872f00ddfbac7fa2bb3e96ba4baa5facd3" title="commit de origem">33cfae8</a></code></div>
+  <div class="commit">gerado do commit <code><a href="https://github.com/Lucassamuel97/mba-ia-desafio-design-docs-com-ia/commit/536a95d01daa521b743f64ce98df3ed20066244d" title="commit de origem">536a95d</a></code></div>
 </header>
 <main class="content">
 <h1 id="fdd-sistema-de-webhooks-de-notificacao-de-pedidos">FDD — Sistema de Webhooks de Notificação de Pedidos</h1>
@@ -183,7 +183,7 @@ X-Timestamp: 2026-07-10T12:00:02.000Z</code></pre>
 <p>Esta seção nomeia os pontos reais do código-base e como o módulo de webhooks se integra a cada um.</p>
 <ol><li>**<code>src/modules/orders/order.service.ts</code>** — <code>changeStatus</code> (linhas 126-179) é estendido para</li></ol>
 <p>   chamar <code>publishWebhookEvent(tx, order, from, to)</code> entre a criação do histórico (linha 167) e o    <code>refreshed</code> (linha 169), <strong>dentro</strong> da transação Prisma existente. É a única alteração    intrusiva no código atual. [09:41]</p>
-<ol><li>**<code>src/modules/orders/order.status.ts</code>** — a máquina de estados (6 status, 8 transições;</li></ol>
+<ol><li>**<code>src/modules/orders/order.status.ts</code>** — a máquina de estados (6 status, 7 transições;</li></ol>
 <p>   <code>canTransition</code>, <code>allowedTransitions</code>, <code>isTerminal</code>) é a fonte de verdade para validar o campo    <code>events</code> do webhook e para os valores <code>from_status</code>/<code>to_status</code> do payload.</p>
 <ol><li>**<code>src/shared/errors/app-error.ts</code>** — a família de erros <code>WEBHOOK_*</code> é criada como subclasses</li></ol>
 <p>   de <code>AppError</code>, reaproveitando o contrato <code>{ statusCode, errorCode, details }</code> já existente.</p>
@@ -209,7 +209,7 @@ X-Timestamp: 2026-07-10T12:00:02.000Z</code></pre>
 </main>
 <footer class="foot">
   Documentação viva gerada por <code>tools/docs-site/build.mjs</code> ·
-  commit de origem <code>33cfae8</code> · 2026-07-13T11:51:01.686Z
+  commit de origem <code>536a95d</code> · 2026-07-13T11:54:07.838Z
 </footer>
 
 </body>

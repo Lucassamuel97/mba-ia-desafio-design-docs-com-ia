@@ -37,6 +37,8 @@ jobs:
 
       - name: Configurar Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true # tenta habilitar o Pages automaticamente (requer Source = GitHub Actions)
 
       - name: Upload do artefato
         uses: actions/upload-pages-artifact@v3
