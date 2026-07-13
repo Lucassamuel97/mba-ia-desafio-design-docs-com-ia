@@ -248,9 +248,12 @@ Esta seção nomeia os pontos reais do código-base e como o módulo de webhooks
    chamar `publishWebhookEvent(tx, order, from, to)` entre a criação do histórico (linha 167) e o
    `refreshed` (linha 169), **dentro** da transação Prisma existente. É a única alteração
    intrusiva no código atual. [09:41]
-2. **`src/modules/orders/order.status.ts`** — a máquina de estados (6 status, 7 transições;
-   `canTransition`, `allowedTransitions`, `isTerminal`) é a fonte de verdade para validar o campo
-   `events` do webhook e para os valores `from_status`/`to_status` do payload.
+2. **`src/modules/orders/order.status.ts`** — a máquina de estados (6 status, 8 transições — inclui
+   a transição **`SHIPPED → CANCELLED`** adicionada no changeset da fase 2; `canTransition`,
+   `allowedTransitions`, `isTerminal`) é a fonte de verdade para validar o campo `events` do
+   webhook e para os valores `from_status`/`to_status` do payload. Como consequência, um pedido em
+   `SHIPPED` que é cancelado agora emite um evento de webhook com `from_status: SHIPPED` e
+   `to_status: CANCELLED` (antes essa transição não existia e `SHIPPED` só ia para `DELIVERED`).
 3. **`src/shared/errors/app-error.ts`** — a família de erros `WEBHOOK_*` é criada como subclasses
    de `AppError`, reaproveitando o contrato `{ statusCode, errorCode, details }` já existente.
 4. **`src/middlewares/error.middleware.ts`** — o error middleware centralizado trata os novos

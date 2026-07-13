@@ -191,6 +191,88 @@ e `docs/adrs/context/` (base factual e transcrição usadas como fonte da verdad
 │   ├── TRACKER.md
 │   ├── adrs/                     (ADR-001..006 + mapping + context + potential-adrs)
 │   ├── diagrams/                (7 Mermaid + 4 níveis C4)
-│   └── agents/                  (relatórios de análise arquitetural/componentes)
+│   ├── agents/                  (relatórios de análise arquitetural/componentes)
+│   └── site/                    (Parte 2: HTML navegável + docs-meta.json)
+├── tools/docs-site/             (Parte 2: gerador e mecanismo de atualização)
+├── fase-2/                      (Parte 2: changeset de demonstração)
+├── .github/workflows/pages.yml  (Parte 2: publica docs/site/ no GitHub Pages)
 └── .claude/plugins/             (marketplace de plugins via git subtree)
 ```
+
+---
+
+## Documentação viva (Parte 2)
+
+Design docs envelhecem quando o código muda. A Parte 2 renderiza o pacote em **HTML navegável** e
+adiciona um **mecanismo de auto-atualização** ancorado no código, dirigido pelo Tracker.
+
+### Artefatos
+
+- **HTML (`docs/site/`)** — gerado por `npm run docs:build` (`tools/docs-site/build.mjs`, sem
+  dependências), cobre PRD, RFC, FDD, ADRs, Tracker e Diagramas, navegáveis entre si, e exibe o
+  hash do commit de origem em toda página.
+- **Âncora (`docs/site/docs-meta.json`)** — registra `source_commit`, `generated_at` e a lista de
+  documentos. Afirma "esta documentação reflete o código neste commit".
+- **Mecanismo (`npm run docs:update` → `tools/docs-site/update.mjs`)** — contrato de 5 etapas: lê a
+  âncora, roda `git diff <source_commit>..HEAD`, usa as linhas do Tracker com Fonte = `CODIGO` para
+  mapear arquivo alterado → item de documento afetado, a IA atualiza só os trechos afetados, e o
+  build regenera o HTML e re-ancora em HEAD.
+
+### Publicação no GitHub Pages
+
+O workflow `.github/workflows/pages.yml` roda `docs:build` e publica `docs/site/` a cada push.
+É preciso habilitar uma vez: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+### Demonstração da Parte 2
+
+Prova do mecanismo sobre uma mudança de código conhecida (`fase-2/order-status-change.patch`): a
+máquina de estados passa a permitir **`SHIPPED → CANCELLED`**.
+
+**1. Estado inicial** — âncora antes da mudança:
+
+```
+docs/site/docs-meta.json  →  source_commit = 536a95d
+```
+
+**2. A mudança** — `git apply fase-2/order-status-change.patch` e commit:
+
+```diff
+-  [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED],
++  [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED, OrderStatus.CANCELLED],
+```
+```
+commit do changeset (C) = 971b4d6  "feat(orders): permite transição SHIPPED -> CANCELLED"
+```
+
+**3. A execução** — `npm run docs:update`:
+
+```
+[1] Âncora: source_commit=536a95d  HEAD=971b4d6
+[2] Arquivos de código alterados (1):
+    - src/modules/orders/order.status.ts
+[3] Itens de documento afetados via Tracker (1):
+    - FDD-INT-02 (docs/FDD.md) <- src/modules/orders/order.status.ts
+[4] Plano de atualização gravado em docs/site/update-plan.json
+```
+
+A etapa 3 é o que diferencia de uma regeneração cega: só `docs/FDD.md` foi flagueado, porque é o
+único documento com uma linha `CODIGO` apontando para `order.status.ts` no Tracker.
+
+**4. O resultado** — a IA atualizou o FDD (e a contagem foi propagada para Tracker, mapping e o
+diagrama C4). Trecho antes/depois em `docs/FDD.md` (seção "Integração com o sistema existente"):
+
+```diff
+-2. `src/modules/orders/order.status.ts` — a máquina de estados (6 status, 7 transições; ...)
++2. `src/modules/orders/order.status.ts` — a máquina de estados (6 status, 8 transições — inclui
++   a transição SHIPPED → CANCELLED adicionada no changeset da fase 2; ...). Como consequência, um
++   pedido em SHIPPED que é cancelado agora emite um evento com from_status: SHIPPED e
++   to_status: CANCELLED (antes SHIPPED só ia para DELIVERED).
+```
+
+Depois, `npm run docs:build` regenerou o HTML e re-ancorou:
+
+```
+docs/site/docs-meta.json  →  source_commit = 971b4d6   (igual ao commit C do changeset)
+```
+
+Nenhum documento afirma mais que `SHIPPED` só vai para `DELIVERED`.

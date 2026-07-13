@@ -116,7 +116,7 @@ Garante que nada foi inventado sem origem identificável.
 | ID | Documento | Tipo | Conteúdo (resumo) | Fonte | Localização |
 | --- | --- | --- | --- | --- | --- |
 | FDD-INT-01 | docs/FDD.md | Referência de código | changeStatus estendido com publishWebhookEvent na transação | CODIGO | src/modules/orders/order.service.ts |
-| FDD-INT-02 | docs/FDD.md | Referência de código | Máquina de estados (6 status, 7 transições) valida events e from/to | CODIGO | src/modules/orders/order.status.ts |
+| FDD-INT-02 | docs/FDD.md | Referência de código | Máquina de estados (6 status, 8 transições, inclui SHIPPED → CANCELLED) valida events e from/to | CODIGO | src/modules/orders/order.status.ts |
 | FDD-INT-03 | docs/FDD.md | Referência de código | Família WEBHOOK_* como subclasses de AppError | CODIGO | src/shared/errors/app-error.ts |
 | FDD-INT-04 | docs/FDD.md | Referência de código | Error middleware trata novos erros por instanceof, sem alteração | CODIGO | src/middlewares/error.middleware.ts |
 | FDD-INT-05 | docs/FDD.md | Referência de código | requireRole('ADMIN') reusado no replay de DLQ | CODIGO | src/middlewares/auth.middleware.ts |
