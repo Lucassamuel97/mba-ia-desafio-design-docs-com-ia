@@ -39,8 +39,12 @@ if (!fs.existsSync(META)) {
   process.exit(1);
 }
 const meta = JSON.parse(fs.readFileSync(META, 'utf8'));
-const source = meta.source_commit;
+// --from=<commit> permite reproduzir a saída a partir de uma âncora arbitrária
+// (útil para demonstração/screenshot); nesse modo o script nunca re-ancora.
+const fromArg = process.argv.find((a) => a.startsWith('--from='));
+const source = fromArg ? fromArg.split('=')[1] : meta.source_commit;
 const head = sh('git rev-parse HEAD').trim();
+if (fromArg) console.log(`(modo demonstração: âncora sobrescrita por --from=${source})`);
 console.log(`[1] Âncora: source_commit=${source.slice(0, 7)}  HEAD=${head.slice(0, 7)}`);
 
 if (source === head) {
